@@ -9,6 +9,10 @@ These scripts implement the Part A pipeline without the report:
 
 Run commands from the `HW1` directory.
 
+## Before Running
+
+Add portugal.gpkg to /generated-data. Can be found in https://download.geofabrik.de/europe/portugal.html.
+
 ## Run The Full Pipeline
 
 Install GDAL once if `ogr2ogr` is not already available:
