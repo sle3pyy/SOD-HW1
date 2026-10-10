@@ -1,0 +1,12 @@
+[project]
+name = "sod-hw1-parta"
+version = "0.1.0"
+description = "Part A and Part B data-preparation pipeline for SOD Homework 1"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = []

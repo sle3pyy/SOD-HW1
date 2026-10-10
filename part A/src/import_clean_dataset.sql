@@ -6,21 +6,25 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP TABLE IF EXISTS parta.porto_points_raw;
 CREATE TABLE parta.porto_points_raw (
+  trip_id text NOT NULL,
   taxi_id integer NOT NULL,
+  point_index integer NOT NULL CHECK (point_index >= 0),
   recorded_at timestamp without time zone NOT NULL,
   longitude double precision NOT NULL,
   latitude double precision NOT NULL
 );
 
-COPY parta.porto_points_raw (taxi_id, recorded_at, longitude, latitude)
+COPY parta.porto_points_raw (trip_id, taxi_id, point_index, recorded_at, longitude, latitude)
 FROM '/data/porto.csv'
 WITH (FORMAT csv, HEADER true);
 
 DROP TABLE IF EXISTS parta.porto_points;
 CREATE TABLE parta.porto_points AS
 SELECT
-  row_number() OVER (ORDER BY taxi_id, recorded_at, longitude, latitude)::bigint AS point_id,
+  row_number() OVER (ORDER BY trip_id, point_index)::bigint AS point_id,
+  trip_id,
   taxi_id,
+  point_index,
   recorded_at,
   longitude,
   latitude,
@@ -39,6 +43,10 @@ ALTER TABLE parta.porto_points
 CREATE INDEX porto_points_taxi_time_idx
   ON parta.porto_points (taxi_id, recorded_at);
 
+-- Preserve trajectory order for Part B's drop-off and approach features.
+CREATE UNIQUE INDEX porto_points_trip_point_idx
+  ON parta.porto_points (trip_id, point_index);
+
 CREATE INDEX porto_points_geom_idx
   ON parta.porto_points
   USING gist (geom);
@@ -52,6 +60,7 @@ ANALYZE parta.porto_points;
 
 SELECT
   count(*) AS point_count,
+  count(DISTINCT trip_id) AS trip_count,
   count(DISTINCT taxi_id) AS taxi_count,
   min(recorded_at) AS first_timestamp,
   max(recorded_at) AS last_timestamp,

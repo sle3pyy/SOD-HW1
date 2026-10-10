@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=Path("generated-data/porto.csv"),
-        help="Output CSV consumed by scripts/import_clean_dataset.sql.",
+        help="Output CSV consumed by part A/import_clean_dataset.sql.",
     )
     parser.add_argument(
         "--max-trips",
@@ -102,7 +102,9 @@ def main() -> int:
             raise SystemExit(f"Input CSV missing columns: {', '.join(sorted(missing_columns))}")
 
         writer = csv.writer(output_file)
-        writer.writerow(["taxi_id", "recorded_at", "longitude", "latitude"])
+        writer.writerow(
+            ["trip_id", "taxi_id", "point_index", "recorded_at", "longitude", "latitude"]
+        )
 
         for row in reader:
             if args.max_trips and trips_read >= args.max_trips:
@@ -110,6 +112,9 @@ def main() -> int:
             trips_read += 1
 
             try:
+                trip_id = row["TRIP_ID"].strip()
+                if not trip_id:
+                    raise ValueError("TRIP_ID is empty")
                 taxi_id = int(row["TAXI_ID"])
                 start_time = datetime.fromtimestamp(int(row["TIMESTAMP"]), tz=timezone.utc)
                 points = parse_polyline(row["POLYLINE"])
@@ -129,7 +134,9 @@ def main() -> int:
                 recorded_at = start_time + timedelta(seconds=15 * point_index)
                 writer.writerow(
                     [
+                        trip_id,
                         taxi_id,
+                        point_index,
                         recorded_at.replace(tzinfo=None).isoformat(sep=" "),
                         f"{lon:.8f}",
                         f"{lat:.8f}",

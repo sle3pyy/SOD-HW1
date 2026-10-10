@@ -16,7 +16,7 @@ DO $$
 BEGIN
   IF to_regclass('public.gis_osm_roads_free') IS NULL THEN
     RAISE EXCEPTION
-      'Road layer public.gis_osm_roads_free is missing. Import the gis_osm_roads_free layer from portugal.gpkg before running this script.';
+      'Road layer public.gis_osm_roads_free is missing. Run python3 "part A/import_roads.py" before running this script.';
   END IF;
 END
 $$;
@@ -51,7 +51,7 @@ SELECT
   row_number() OVER ()::bigint AS road_pk,
   COALESCE(osm_id::text, '') AS osm_id,
   COALESCE(name::text, '') AS name,
-  COALESCE(fclass::text, '') AS highway,
+  COALESCE(highway::text, '') AS highway,
   ST_Multi(
     ST_CollectionExtract(
       ST_Transform(ST_MakeValid(ST_Force2D(r.geom)), 4326),
@@ -89,7 +89,9 @@ DROP TABLE IF EXISTS parta.porto_points_matched;
 CREATE TABLE parta.porto_points_matched AS
 SELECT
   p.point_id,
+  p.trip_id,
   p.taxi_id,
+  p.point_index,
   p.recorded_at,
   p.longitude,
   p.latitude,
