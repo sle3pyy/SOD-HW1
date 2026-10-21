@@ -2,97 +2,97 @@
 """Import OSM entrance labels and building footprints for the Part B area of interest.
 
 The area of interest (AOI) is an OSM administrative boundary, the Porto
-municipality by default. It does not depend on the Part A taxi data.
+municipality by default. The PBF is read with pyrosm and the layers are
+written to PostGIS with geopandas.
 """
 
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
-from sod_common.ogr import extent_buffer_meters, import_layer, query_bounds
+from pyrosm import OSM
 from sod_common.paths import PBF, ROOT
-from sod_common.postgis import (
-    database_settings,
-    ensure_postgis_running,
-    require_command,
-    run_sql,
-    run_sql_file,
-)
+from sod_common.postgis import database_settings, run_sql_file
+from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.postgresql import JSONB
 
 SQL = Path(__file__).resolve().parents[1] / "sql"
+# Metric CRS for buffering in Portugal (PT-TM06/ETRS89).
+METRIC_CRS = 3763
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--aoi-name", default="Porto", help="OSM name of the boundary (default: Porto).")
+    parser.add_argument("--aoi-name", default="Porto", help="Exact OSM boundary name.")
     parser.add_argument(
-        "--aoi-admin-level", type=int, default=7, help="OSM admin_level of the boundary (7 = Portuguese municipality)."
+        "--aoi-admin-level",
+        default="7",
+        help="OSM admin_level of the boundary (7 = Portuguese municipality).",
+    )
+    parser.add_argument(
+        "--extent-buffer-m",
+        type=float,
+        default=1000,
+        help="Buffer around the AOI, in metres, for the imported features.",
     )
     return parser.parse_args()
-
-
-def import_aoi(settings, name: str, admin_level: int, buffer_m: float) -> None:
-    """Load the boundary into partb.aoi, with extent_3857 = boundary + buffer for the context crop."""
-    quoted_name = name.replace("'", "''")
-    where = f"boundary = 'administrative' AND admin_level = '{admin_level}' AND name = '{quoted_name}'"
-    print(f"Importing the {name} boundary (admin_level={admin_level})...")
-    import_layer(settings, PBF, "multipolygons", where, "partb.aoi_raw", None, "PROMOTE_TO_MULTI")
-    run_sql(
-        ROOT,
-        settings,
-        f"""
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM partb.aoi_raw) THEN
-    RAISE EXCEPTION 'No administrative boundary named {quoted_name} with admin_level {admin_level} in the PBF.';
-  END IF;
-END
-$$;
-DROP TABLE IF EXISTS partb.aoi;
-CREATE TABLE partb.aoi AS
-SELECT
-  min(name) AS name,
-  ST_Multi(ST_Union(ST_Force2D(geom)))::geometry(MultiPolygon, 4326) AS geom,
-  ST_Multi(ST_Transform(ST_Union(ST_Force2D(geom)), 3857))::geometry(MultiPolygon, 3857) AS geom_3857,
-  ST_Multi(ST_Buffer(ST_Transform(ST_Union(ST_Force2D(geom)), 3857), {buffer_m:g}))::geometry(MultiPolygon, 3857)
-    AS extent_3857
-FROM partb.aoi_raw;
-""",
-    )
 
 
 def main() -> int:
     args = parse_args()
     if not PBF.is_file():
-        raise RuntimeError(f"OSM PBF not found: {PBF}")
-    buffer_m = extent_buffer_meters()
-    require_command("ogr2ogr", "Install it with: sudo apt install gdal-bin")
-    ensure_postgis_running(ROOT)
-    settings = database_settings()
-    run_sql(ROOT, settings, "CREATE SCHEMA IF NOT EXISTS partb;")
-    import_aoi(settings, args.aoi_name, args.aoi_admin_level, buffer_m)
-    bounds = query_bounds(
-        settings,
-        """
-        SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e)
-        FROM (SELECT ST_Transform(extent_3857, 4326) AS e FROM partb.aoi) AS aoi;
-        """,
-        "The partb.aoi table is empty.",
-    )
+        sys.exit(f"error: OSM PBF not found: {PBF}")
 
-    print(f"Importing OSM entrances and buildings within the AOI + {buffer_m:g} m...")
-    import_layer(settings, PBF, "points", "other_tags LIKE '%\"entrance\"%'", "partb.osm_entrances_raw", bounds, "POINT")
-    import_layer(settings, PBF, "multipolygons", "building IS NOT NULL", "partb.osm_buildings_raw", bounds, "PROMOTE_TO_MULTI")
-    run_sql_file(ROOT, settings, SQL / "prepare_entrances.sql")
+    print(
+        f"Reading the {args.aoi_name} boundary (admin_level={args.aoi_admin_level})..."
+    )
+    boundaries = OSM(str(PBF)).get_boundaries(name=args.aoi_name)
+    # pyrosm's name filter matches substrings ("Porto de Mós"), so match exactly here.
+    aoi = boundaries[
+        (boundaries["name"] == args.aoi_name)
+        & (boundaries["admin_level"] == args.aoi_admin_level)
+    ]
+    if aoi.empty:
+        sys.exit(
+            f"error: no boundary named {args.aoi_name!r} with admin_level "
+            f"{args.aoi_admin_level} in {PBF}"
+        )
+    extent = aoi.to_crs(METRIC_CRS).buffer(args.extent_buffer_m).to_crs(4326).iloc[0]
+
+    print(
+        f"Reading entrances and buildings within the AOI + {args.extent_buffer_m:g} m..."
+    )
+    osm = OSM(str(PBF), bounding_box=extent)
+    entrances = osm.get_data_by_custom_criteria(
+        custom_filter={"entrance": True}, keep_ways=False, keep_relations=False
+    )
+    buildings = osm.get_buildings()
+
+    engine = create_engine(database_settings().sqlalchemy_url)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE SCHEMA IF NOT EXISTS partb"))
+    layers = {
+        "aoi": aoi[["name", "admin_level", "geometry"]],
+        "osm_entrances_raw": entrances[["id", "entrance", "tags", "geometry"]],
+        "osm_buildings_raw": buildings[
+            ["id", "osm_type", "name", "building", "tags", "geometry"]
+        ],
+    }
+    for table, gdf in layers.items():
+        gdf.rename(columns={"id": "osm_id"}).rename_geometry("geom").to_postgis(
+            table,
+            engine,
+            schema="partb",
+            if_exists="replace",
+            index=False,
+            dtype={"tags": JSONB},
+        )
+    print(f"Wrote {len(entrances)} entrances and {len(buildings)} buildings.")
+    run_sql_file(ROOT, database_settings(), SQL / "prepare_entrances.sql")
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (RuntimeError, subprocess.CalledProcessError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+    raise SystemExit(main())

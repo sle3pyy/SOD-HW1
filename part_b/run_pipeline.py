@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,10 +19,26 @@ DATA_DIR = PROJECT_DATA_DIR / "entrance_tagging"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--aoi-name", default="Porto", help="OSM name of the area-of-interest boundary.")
-    parser.add_argument("--aoi-admin-level", type=int, default=7, help="OSM admin_level of the boundary.")
-    parser.add_argument("--extent-buffer-m", type=float, default=1000, help="Buffer around the AOI in metres.")
-    parser.add_argument("--skip-osm-import", action="store_true", help="Reuse the existing partb tables.")
+    parser.add_argument(
+        "--aoi-name", default="Porto", help="OSM name of the area-of-interest boundary."
+    )
+    parser.add_argument(
+        "--aoi-admin-level",
+        type=int,
+        default=7,
+        help="OSM admin_level of the boundary.",
+    )
+    parser.add_argument(
+        "--extent-buffer-m",
+        type=float,
+        default=1000,
+        help="Buffer around the AOI in metres.",
+    )
+    parser.add_argument(
+        "--skip-osm-import",
+        action="store_true",
+        help="Reuse the existing partb tables.",
+    )
     parser.add_argument(
         "--raw-file",
         type=Path,
@@ -33,9 +48,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run(command: list[str], *, env: dict[str, str] | None = None) -> None:
+def run(command: list[str]) -> None:
     print("+", " ".join(command), flush=True)
-    subprocess.run(command, cwd=ROOT, check=True, text=True, env=env)
+    subprocess.run(command, cwd=ROOT, check=True, text=True)
 
 
 def main() -> int:
@@ -45,21 +60,25 @@ def main() -> int:
 
     if not args.skip_osm_import:
         run(["docker", "compose", "up", "-d", "postgis"])
-        environment = os.environ.copy()
-        environment["EXTENT_BUFFER_M"] = f"{args.extent_buffer_m:g}"
+        run(["sleep", "5"])
         run(
             [
                 sys.executable,
                 str(SRC / "import_osm.py"),
-                "--aoi-name", args.aoi_name,
-                "--aoi-admin-level", str(args.aoi_admin_level),
-            ],
-            env=environment,
+                "--aoi-name",
+                args.aoi_name,
+                "--aoi-admin-level",
+                str(args.aoi_admin_level),
+                "--extent-buffer-m",
+                f"{args.extent_buffer_m:g}",
+            ]
         )
 
     # The feature extractor that writes the raw file from PostGIS is not implemented yet.
     if not args.raw_file.is_file():
-        print(f"No raw feature file at {args.raw_file}; skipping entrance-tagging cross-validation.")
+        print(
+            f"No raw feature file at {args.raw_file}; skipping entrance-tagging cross-validation."
+        )
         return 0
     data_dir = ["--data-dir", str(args.raw_file.parent)]
     raw_file = ["--raw-file", str(args.raw_file)]

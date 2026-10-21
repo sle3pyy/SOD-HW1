@@ -15,7 +15,8 @@ Part B does not use the taxi data.
 
 ## Setup
 
-Requirements: Docker with Compose, GDAL (`ogr2ogr`), and [uv](https://docs.astral.sh/uv/).
+Requirements: Docker with Compose and [uv](https://docs.astral.sh/uv/). Part A also needs GDAL
+(`ogr2ogr`); Part B reads the PBF with pyrosm and does not.
 
 ```bash
 sudo apt install gdal-bin

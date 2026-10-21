@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 
-from sod_common.ogr import extent_buffer_meters, import_layer, query_bounds
+from ogr import extent_buffer_meters, import_layer, query_bounds
 from sod_common.paths import PBF, ROOT
 from sod_common.postgis import (
     database_settings,

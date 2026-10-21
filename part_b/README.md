@@ -34,13 +34,15 @@ exists. Options: `--aoi-name`, `--aoi-admin-level`, `--extent-buffer-m`, `--skip
 uv run part_b/src/import_osm.py
 ```
 
-This imports the AOI boundary, then the `entrance=*` nodes and `building=*` footprints within the AOI
-plus a buffer (`EXTENT_BUFFER_M`, default 1000 m), from the PBF (see
-[`data/README.md`](../data/README.md)). It creates:
+This reads the PBF (see [`data/README.md`](../data/README.md)) with
+[pyrosm](https://pyrosm.readthedocs.io/) and writes the layers to PostGIS with geopandas; GDAL is not
+needed. It looks up the AOI boundary (`--aoi-name`, `--aoi-admin-level`; the name must match
+exactly), then reads the `entrance=*` nodes and the building footprints within the AOI plus a buffer
+(`--extent-buffer-m`, default 1000 m). It creates:
 
-- `partb.aoi`: the boundary (`geom`, `geom_3857`) and the buffered extent (`extent_3857`);
-- `partb.osm_entrances`: all OSM entrance nodes in the extent;
-- `partb.osm_buildings`: all OSM building footprints in the extent;
+- `partb.aoi`: the AOI boundary (`name`, `admin_level`, `geom`);
+- `partb.osm_entrances`: all OSM entrance nodes in the extent, with their tags as `jsonb`;
+- `partb.osm_buildings`: all OSM building footprints in the extent (`osm_type`, `osm_id`, tags);
 - `partb.entrance_reference`: entrances classified as `main`, `generic` or `non_public_or_special`;
 - `partb.entrance_reference_buildings`: entrance labels linked to their nearest building footprint
   within 5 m.

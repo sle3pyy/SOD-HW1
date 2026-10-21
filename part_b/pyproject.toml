@@ -11,6 +11,11 @@ dependencies = [
     "pandas>=2.2",
     "scikit-learn>=1.6",
     "statsmodels",
+    "pyrosm>=0.23",
+    "geopandas>=1.2.0",
+    "sqlalchemy>=2.1.4",
+    "psycopg[binary]>=3.3.6",
+    "geoalchemy2>=0.20.0",
 ]
 
 [tool.uv]

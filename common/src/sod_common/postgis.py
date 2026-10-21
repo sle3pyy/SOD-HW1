@@ -11,6 +11,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,14 @@ class DatabaseSettings:
         return (
             f"PG:host={self.host} port={self.port} dbname={self.database} "
             f"user={self.user} password={self.password}"
+        )
+
+    @property
+    def sqlalchemy_url(self) -> str:
+        """Connection URL for SQLAlchemy (and geopandas) using the psycopg 3 driver."""
+        return (
+            f"postgresql+psycopg://{quote(self.user)}:{quote(self.password)}"
+            f"@{self.host}:{self.port}/{self.database}"
         )
 
 
@@ -54,7 +63,9 @@ def ensure_postgis_running(workdir: Path) -> None:
         text=True,
     )
     if "postgis" not in result.stdout.splitlines():
-        raise RuntimeError("PostGIS is not running. Start it with: docker compose up -d postgis")
+        raise RuntimeError(
+            "PostGIS is not running. Start it with: docker compose up -d postgis"
+        )
 
 
 def psql_command(settings: DatabaseSettings) -> list[str]:

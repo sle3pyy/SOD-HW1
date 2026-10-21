@@ -12,6 +12,9 @@ dependencies = [
 
 [tool.uv]
 package = false
+exclude-newer = "14 days"
+# pyrosm 0.15.0 is ~10x slower on our PBF, so pyrosm alone is exempt (decided 2026-10-21).
+exclude-newer-package = { pyrosm = false }
 
 [tool.uv.workspace]
 members = ["common", "part_a", "part_b"]
@@ -23,6 +26,6 @@ sod-hw1-partb = { workspace = true }
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.1",
-    "ruff>=0.17.1",
+    "pytest>=9",
+    "ruff>=0.16",
 ]

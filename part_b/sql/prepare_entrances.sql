@@ -20,16 +20,14 @@ $$;
 DROP TABLE IF EXISTS partb.osm_entrances;
 CREATE TABLE partb.osm_entrances AS
 SELECT
-  NULLIF(r.osm_id, '')::bigint AS osm_id,
-  NULLIF(r.name, '') AS name,
-  lower((regexp_match(r.other_tags, '"entrance"=>"([^"]+)"'))[1]) AS entrance_kind,
-  r.other_tags,
-  ST_SetSRID(ST_Force2D(r.geom), 4326)::geometry(Point, 4326) AS geom,
-  ST_Transform(ST_SetSRID(ST_Force2D(r.geom), 4326), 3857)::geometry(Point, 3857) AS geom_3857
-FROM partb.osm_entrances_raw r
-CROSS JOIN partb.aoi a
-WHERE r.geom IS NOT NULL
-  AND ST_Intersects(ST_Transform(ST_SetSRID(ST_Force2D(r.geom), 4326), 3857), a.extent_3857);
+  osm_id,
+  NULLIF(tags->>'name', '') AS name,
+  lower(entrance) AS entrance_kind,
+  tags,
+  ST_Force2D(geom)::geometry(Point, 4326) AS geom,
+  ST_Transform(ST_Force2D(geom), 3857)::geometry(Point, 3857) AS geom_3857
+FROM partb.osm_entrances_raw
+WHERE geom IS NOT NULL;
 
 ALTER TABLE partb.osm_entrances ADD PRIMARY KEY (osm_id);
 CREATE INDEX osm_entrances_geom_idx ON partb.osm_entrances USING gist (geom);
@@ -39,18 +37,27 @@ CREATE INDEX osm_entrances_kind_idx ON partb.osm_entrances (entrance_kind);
 DROP TABLE IF EXISTS partb.osm_buildings;
 CREATE TABLE partb.osm_buildings AS
 SELECT
-  row_number() OVER (ORDER BY COALESCE(NULLIF(osm_way_id, ''), NULLIF(osm_id, '')))::bigint AS building_id,
-  NULLIF(osm_id, '') AS osm_relation_id,
-  NULLIF(osm_way_id, '') AS osm_way_id,
-  NULLIF(name, '') AS name,
-  NULLIF(building, '') AS building_type,
-  ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Force2D(geom)), 3))::geometry(MultiPolygon, 4326) AS geom,
-  ST_Transform(
-    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Force2D(geom)), 3)), 3857
-  )::geometry(MultiPolygon, 3857) AS geom_3857
-FROM partb.osm_buildings_raw
-WHERE geom IS NOT NULL
-  AND NOT ST_IsEmpty(geom);
+  row_number() OVER (ORDER BY osm_type, osm_id)::bigint AS building_id,
+  osm_type,
+  osm_id,
+  name,
+  building_type,
+  tags,
+  geom,
+  ST_Transform(geom, 3857)::geometry(MultiPolygon, 3857) AS geom_3857
+FROM (
+  SELECT
+    osm_type,
+    osm_id,
+    NULLIF(name, '') AS name,
+    NULLIF(building, '') AS building_type,
+    tags,
+    ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Force2D(geom)), 3))::geometry(MultiPolygon, 4326) AS geom
+  FROM partb.osm_buildings_raw
+  WHERE geom IS NOT NULL
+) polygons
+-- Buildings mapped as single nodes have no footprint and are dropped here.
+WHERE NOT ST_IsEmpty(geom);
 
 ALTER TABLE partb.osm_buildings ADD PRIMARY KEY (building_id);
 CREATE INDEX osm_buildings_geom_idx ON partb.osm_buildings USING gist (geom);
@@ -85,8 +92,8 @@ SELECT
   e.reference_class,
   e.entrance_kind,
   b.building_id,
-  b.osm_relation_id AS building_osm_relation_id,
-  b.osm_way_id AS building_osm_way_id,
+  b.osm_type AS building_osm_type,
+  b.osm_id AS building_osm_id,
   b.name AS building_name,
   b.building_type,
   e.geom AS entrance_geom,
