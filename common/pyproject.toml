@@ -1,0 +1,10 @@
+[project]
+name = "sod-common"
+version = "0.1.0"
+description = "Code shared by Part A and Part B: project paths, PostGIS access and OSM PBF imports"
+requires-python = ">=3.14"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.8,<1"]
+build-backend = "uv_build"

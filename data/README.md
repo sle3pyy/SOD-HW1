@@ -1,0 +1,15 @@
+# Data
+
+| Path | Contents | Committed |
+| --- | --- | --- |
+| `osm/portugal-261020.osm.pbf` | Geofabrik Portugal extract, used by both parts | no |
+| `porto_taxi/` | Porto taxi challenge trajectories (Part A input) | yes |
+| `generated/` | `porto.csv` written by Part A, mounted in the PostGIS container as `/data` | yes |
+| `entrance_tagging/` | Part B raw feature file, cross-validation groups and results | no |
+
+## OSM extract
+
+Download `portugal-latest.osm.pbf` from <https://download.geofabrik.de/europe/portugal.html> and save
+it as `data/osm/portugal-261020.osm.pbf`. To use another file, set the `PBF` environment variable to
+its path relative to the project root, for example
+`PBF=data/osm/portugal-latest.osm.pbf uv run part_b/run_pipeline.py`.

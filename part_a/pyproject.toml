@@ -1,0 +1,12 @@
+[project]
+name = "sod-hw1-parta"
+version = "0.1.0"
+description = "Part A: map-matching Porto taxi GPS points to the OSM road network in PostGIS"
+requires-python = ">=3.14"
+dependencies = ["sod-common"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+sod-common = { workspace = true }

@@ -6,8 +6,10 @@ from __future__ import annotations
 import argparse
 import ast
 import csv
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from sod_common.paths import DATA_DIR
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,14 +19,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=Path("datasetA/Porto_taxi_data_test_partial_trajectories.csv"),
+        default=DATA_DIR / "porto_taxi/Porto_taxi_data_test_partial_trajectories.csv",
         help="Porto taxi CSV containing TRIP_ID, TAXI_ID, TIMESTAMP, and POLYLINE.",
     )
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("generated-data/porto.csv"),
-        help="Output CSV consumed by part A/import_clean_dataset.sql.",
+        default=DATA_DIR / "generated/porto.csv",
+        help="Output CSV consumed by part_a/sql/import_clean_dataset.sql.",
     )
     parser.add_argument(
         "--max-trips",
@@ -54,7 +56,7 @@ def parse_polyline(value: str) -> list[list[float]]:
         raise ValueError("invalid POLYLINE literal") from exc
 
     if not isinstance(parsed, list):
-        raise ValueError("POLYLINE is not a list")
+        raise TypeError("POLYLINE is not a list")
 
     points: list[list[float]] = []
     for point in parsed:
@@ -116,7 +118,7 @@ def main() -> int:
                 if not trip_id:
                     raise ValueError("TRIP_ID is empty")
                 taxi_id = int(row["TAXI_ID"])
-                start_time = datetime.fromtimestamp(int(row["TIMESTAMP"]), tz=timezone.utc)
+                start_time = datetime.fromtimestamp(int(row["TIMESTAMP"]), tz=UTC)
                 points = parse_polyline(row["POLYLINE"])
             except (TypeError, ValueError):
                 trips_skipped += 1

@@ -1,4 +1,11 @@
 __pycache__/
-portugal.gpkg
+.venv/
+.ruff_cache/
 HW01_spatialDataAnalysis.md
-portugal-261008.osm.pbf
+
+# Large or regenerated data: see data/README.md for where it comes from.
+*.pbf
+*.gpkg
+data/osm/*
+data/entrance_tagging/*
+data/generated/*

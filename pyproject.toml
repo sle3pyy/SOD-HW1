@@ -1,0 +1,28 @@
+[project]
+name = "sod-hw1"
+version = "0.1.0"
+description = "SOD Homework 1: spatial data analysis (Part A map matching, Part B entrance detection)"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "sod-common",
+    "sod-hw1-parta",
+    "sod-hw1-partb",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["common", "part_a", "part_b"]
+
+[tool.uv.sources]
+sod-common = { workspace = true }
+sod-hw1-parta = { workspace = true }
+sod-hw1-partb = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]

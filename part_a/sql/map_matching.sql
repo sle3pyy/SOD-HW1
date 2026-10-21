@@ -16,7 +16,7 @@ DO $$
 BEGIN
   IF to_regclass('public.gis_osm_roads_free') IS NULL THEN
     RAISE EXCEPTION
-      'Road layer public.gis_osm_roads_free is missing. Run python3 "part A/import_roads.py" before running this script.';
+      'Road layer public.gis_osm_roads_free is missing. Run uv run part_a/src/import_roads.py before running this script.';
   END IF;
 END
 $$;

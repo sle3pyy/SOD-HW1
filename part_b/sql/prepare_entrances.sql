@@ -5,25 +5,17 @@ CREATE SCHEMA IF NOT EXISTS partb;
 
 DO $$
 BEGIN
-  IF to_regclass('parta.porto_points') IS NULL THEN
-    RAISE EXCEPTION 'parta.porto_points is missing. Run the Part A point import first.';
+  IF to_regclass('partb.aoi') IS NULL THEN
+    RAISE EXCEPTION 'partb.aoi is missing. Run uv run part_b/src/import_osm.py first.';
   END IF;
   IF to_regclass('partb.osm_entrances_raw') IS NULL THEN
-    RAISE EXCEPTION 'partb.osm_entrances_raw is missing. Run python3 "part A/import_partb_osm.py" first.';
+    RAISE EXCEPTION 'partb.osm_entrances_raw is missing. Run uv run part_b/src/import_osm.py first.';
   END IF;
   IF to_regclass('partb.osm_buildings_raw') IS NULL THEN
-    RAISE EXCEPTION 'partb.osm_buildings_raw is missing. Run python3 "part A/import_partb_osm.py" first.';
+    RAISE EXCEPTION 'partb.osm_buildings_raw is missing. Run uv run part_b/src/import_osm.py first.';
   END IF;
 END
 $$;
-
-DROP TABLE IF EXISTS partb.porto_extent;
-CREATE TABLE partb.porto_extent AS
-SELECT ST_Buffer(ST_Envelope(ST_Collect(geom_3857)), 2000)::geometry(Polygon, 3857) AS geom_3857
-FROM parta.porto_points;
-
-CREATE INDEX porto_extent_geom_3857_idx
-  ON partb.porto_extent USING gist (geom_3857);
 
 DROP TABLE IF EXISTS partb.osm_entrances;
 CREATE TABLE partb.osm_entrances AS
@@ -35,9 +27,9 @@ SELECT
   ST_SetSRID(ST_Force2D(r.geom), 4326)::geometry(Point, 4326) AS geom,
   ST_Transform(ST_SetSRID(ST_Force2D(r.geom), 4326), 3857)::geometry(Point, 3857) AS geom_3857
 FROM partb.osm_entrances_raw r
-CROSS JOIN partb.porto_extent e
+CROSS JOIN partb.aoi a
 WHERE r.geom IS NOT NULL
-  AND ST_Intersects(ST_Transform(ST_SetSRID(ST_Force2D(r.geom), 4326), 3857), e.geom_3857);
+  AND ST_Intersects(ST_Transform(ST_SetSRID(ST_Force2D(r.geom), 4326), 3857), a.extent_3857);
 
 ALTER TABLE partb.osm_entrances ADD PRIMARY KEY (osm_id);
 CREATE INDEX osm_entrances_geom_idx ON partb.osm_entrances USING gist (geom);

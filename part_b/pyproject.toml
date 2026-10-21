@@ -1,0 +1,20 @@
+[project]
+name = "sod-hw1-partb"
+version = "0.1.0"
+description = "Part B: tagging the main entrances of public buildings from OSM (Hu et al., 2021)"
+requires-python = ">=3.14"
+dependencies = [
+    "sod-common",
+    "imbalanced-learn>=0.13",
+    "matplotlib",
+    "numpy",
+    "pandas>=2.2",
+    "scikit-learn>=1.6",
+    "statsmodels",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+sod-common = { workspace = true }

@@ -96,9 +96,18 @@ def run_sql(
     )
 
 
-def run_sql_file(workdir: Path, settings: DatabaseSettings, filename: Path) -> None:
+def run_sql_file(
+    workdir: Path,
+    settings: DatabaseSettings,
+    filename: Path,
+    variables: dict[str, float] | None = None,
+) -> None:
+    """Run a SQL file from the host, optionally setting psql variables (``:name`` in the file)."""
+    command = psql_command(settings)
+    for key, value in (variables or {}).items():
+        command.extend(["-v", f"{key}={value:g}"])
     subprocess.run(
-        [*psql_command(settings), "-f", "/dev/stdin"],
+        [*command, "-f", "/dev/stdin"],
         cwd=workdir,
         check=True,
         text=True,
