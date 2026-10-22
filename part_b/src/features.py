@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract per-sample entrance features from the Part B PostGIS tables.
 
-Implements the sampling and the non-path features of Hu et al. (2021), section 3:
+Implements the sampling and the features of Hu et al. (2021), section 3:
 each building's outer ring is split into ~3 m segments whose midpoints are the
 samples (candidate entrances). Every sample gets intrinsic features (from the
 footprint) and extrinsic features (from the spatial context within 150 m).
@@ -25,6 +25,9 @@ import numpy as np
 import pandas as pd
 import shapely
 from pyproj import Transformer
+from scipy import ndimage
+from scipy.sparse import coo_matrix, csr_matrix
+from scipy.sparse.csgraph import dijkstra
 from shapely import affinity
 from shapely.geometry import Polygon
 from shapely.geometry.polygon import orient
@@ -44,6 +47,12 @@ AXIS_TOLERANCE_M = 1.5  # max Hausdorff distance of a mirrored footprint
 # entrance farther than this from the sampled ring (e.g. on another part of a
 # multi-part footprint) has no correct positive sample, so the building is skipped.
 ENTRANCE_TOLERANCE_M = 5.0
+# Path features (stage B): walking distance on an occupancy grid around obstacles.
+GRID_M = 1.0  # grid cell size
+PATH_START_OFFSET_M = 1.0  # paths start just outside the wall
+MAX_SNAP_M = 2.0  # blocked starts/sources move to a free cell at most this far
+LINE_OBSTACLE_M = 0.5  # half-width given to barrier and railway lines
+NO_PATH_M = 3 * CONTEXT_RADIUS_M  # path distance of a sample without a path
 OUT_DIR = DATA_DIR / "entrance_tagging"
 
 TO_LONLAT = Transformer.from_crs(METRIC_CRS, 4326, always_xy=True)
@@ -350,7 +359,7 @@ def visible_counts(origins: np.ndarray, points: np.ndarray, blockers) -> np.ndar
 
 
 def extrinsic_features(
-    building, samples: Samples, context: Context
+    building, samples: Samples, context: Context, paths: bool = True
 ) -> dict[str, np.ndarray]:
     area = shapely.buffer(building.geom, CONTEXT_RADIUS_M)
     points = shapely.points(samples.points)
@@ -426,7 +435,137 @@ def extrinsic_features(
         )
         features[name] = values
         features[f"{name}_sort"] = ranks(values)
+
+    if paths:
+        grid = occupancy_grid(area.bounds, path_obstacles(near, others))
+        starts = samples.points + samples.normal * PATH_START_OFFSET_M
+        for name, geoms in [
+            ("main", near["main"]),
+            ("ped", near["pedestrian"]),
+            ("se", near["service"]),
+            ("rail", near["rail"]),
+            ("park", near["bicycle_parking"]),
+            ("addr", address),
+        ]:
+            if len(geoms):
+                path, access, turn = path_features(
+                    grid, samples.points, starts, targets(geoms)
+                )
+                features |= {
+                    f"{name}_path": path,
+                    f"{name}_path_sort": ranks(path),
+                    f"{name}_access": access,
+                    f"{name}_turn": turn,
+                }
     return features
+
+
+# ---------------------------------------------------------------- paths
+
+
+@dataclass
+class Grid:
+    """Occupancy grid; cell (r, c) has its centre at origin + ((c, r) + 0.5) * GRID_M."""
+
+    origin: np.ndarray  # (2,) lower-left corner
+    free: np.ndarray  # (rows, cols) walkable cells
+    nearest: np.ndarray  # (2, rows, cols) row/col of the nearest free cell
+    graph: csr_matrix  # 8-connected graph of the free cells
+
+    def centres(self, nodes: np.ndarray) -> np.ndarray:
+        rows, cols = np.divmod(nodes, self.free.shape[1])
+        return self.origin + (np.column_stack([cols, rows]) + 0.5) * GRID_M
+
+    def snap(self, xy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Node of the free cell for each point (-1 if none within MAX_SNAP_M), and the offset."""
+        cols, rows = np.floor((xy - self.origin) / GRID_M).astype(int).T
+        n_rows, n_cols = self.free.shape
+        inside = (rows >= 0) & (rows < n_rows) & (cols >= 0) & (cols < n_cols)
+        rows, cols = np.clip(rows, 0, n_rows - 1), np.clip(cols, 0, n_cols - 1)
+        rows, cols = self.nearest[0, rows, cols], self.nearest[1, rows, cols]
+        nodes = rows * n_cols + cols
+        offset = np.hypot(*(xy - self.centres(nodes)).T)
+        valid = inside & self.free[rows, cols] & (offset <= MAX_SNAP_M)
+        return np.where(valid, nodes, -1), offset
+
+
+def grid_graph(free: np.ndarray) -> csr_matrix:
+    """Edges of 1 or sqrt(2) cells between 8-connected free cells."""
+    n_rows, n_cols = free.shape
+    index = np.arange(free.size).reshape(free.shape)
+    rows, cols, weights = [], [], []
+    for dy, dx in [(0, 1), (1, 0), (1, 1), (1, -1)]:
+        a = index[: n_rows - dy, max(0, -dx) : n_cols - max(0, dx)].ravel()
+        b = index[dy:, max(0, dx) : n_cols + min(0, dx)].ravel()
+        both = free.ravel()[a] & free.ravel()[b]
+        rows.append(a[both])
+        cols.append(b[both])
+        weights.append(np.full(both.sum(), np.hypot(dx, dy) * GRID_M))
+    return coo_matrix(
+        (np.concatenate(weights), (np.concatenate(rows), np.concatenate(cols))),
+        shape=(free.size, free.size),
+    ).tocsr()
+
+
+def occupancy_grid(bounds, obstacles) -> Grid:
+    """Grid over the bounds; a cell is blocked when its centre lies in an obstacle."""
+    min_x, min_y, max_x, max_y = bounds
+    n_cols = int(np.ceil((max_x - min_x) / GRID_M))
+    n_rows = int(np.ceil((max_y - min_y) / GRID_M))
+    xs = min_x + (np.arange(n_cols) + 0.5) * GRID_M
+    ys = min_y + (np.arange(n_rows) + 0.5) * GRID_M
+    blocked = np.zeros((n_rows, n_cols), dtype=bool)
+    if len(obstacles):
+        union = shapely.union_all(obstacles)
+        shapely.prepare(union)
+        blocked = shapely.contains_xy(union, *np.meshgrid(xs, ys))
+    free = ~blocked
+    _, nearest = ndimage.distance_transform_edt(blocked, return_indices=True)
+    return Grid(np.array([min_x, min_y]), free, nearest, grid_graph(free))
+
+
+def path_obstacles(near: dict[str, np.ndarray], buildings: np.ndarray) -> np.ndarray:
+    """Path obstacles of the paper: buildings, barriers, green, water and railway."""
+    lines = np.concatenate([near["barrier"], near["rail"]])
+    return np.concatenate(
+        [
+            buildings,
+            near["green"],
+            near["water"],
+            shapely.buffer(lines, LINE_OBSTACLE_M),
+        ]
+    )
+
+
+def path_features(
+    grid: Grid, samples_xy: np.ndarray, starts_xy: np.ndarray, sources_xy: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Shortest walking path from every sample to the nearest source point.
+
+    Returns the path distance (NO_PATH_M without a path), accessible (0/1) and the
+    turning degree: path distance / Euclidean distance to the source it reaches.
+    """
+    n = len(samples_xy)
+    sources = np.unique(grid.snap(sources_xy)[0])
+    sources = sources[sources >= 0]
+    starts, offsets = grid.snap(starts_xy)
+    if len(sources) == 0:
+        return np.full(n, NO_PATH_M), np.zeros(n, dtype=int), np.zeros(n)
+    distances, _, reached = dijkstra(
+        grid.graph,
+        directed=False,
+        indices=sources,
+        min_only=True,
+        return_predecessors=True,
+        limit=NO_PATH_M,
+    )
+    walk = np.where(starts >= 0, distances[np.maximum(starts, 0)], np.inf)
+    access = np.isfinite(walk)
+    path = np.where(access, PATH_START_OFFSET_M + offsets + walk, NO_PATH_M)
+    target = grid.centres(np.where(access, reached[np.maximum(starts, 0)], 0))
+    euclid = np.maximum(np.hypot(*(samples_xy - target).T), GRID_M)
+    turn = np.where(access, path / euclid, 0.0)
+    return path, access.astype(int), turn
 
 
 # ---------------------------------------------------------------- output
@@ -437,7 +576,11 @@ def lonlat(xy: np.ndarray) -> np.ndarray:
 
 
 def write_blocks(
-    buildings: gpd.GeoDataFrame, context: Context, raw_file: Path, samples_file: Path
+    buildings: gpd.GeoDataFrame,
+    context: Context,
+    raw_file: Path,
+    samples_file: Path,
+    paths: bool = True,
 ) -> None:
     """Write one raw-format block per building and the sample coordinates."""
     with (
@@ -465,7 +608,7 @@ def write_blocks(
             else:
                 index, entrance_lonlat = -1, (0.0, 0.0)
             features = intrinsic_features(polygon, samples) | extrinsic_features(
-                building, samples, context
+                building, samples, context, paths
             )
             sample_lonlat = lonlat(samples.points)
             raw_writer.writerow(
@@ -499,6 +642,11 @@ def main() -> int:
     parser.add_argument(
         "--out-dir", type=Path, default=OUT_DIR, help="Output directory."
     )
+    parser.add_argument(
+        "--no-path",
+        action="store_true",
+        help="Skip the path-based features (stage B), e.g. to compare with stage A.",
+    )
     args = parser.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
     engine = create_engine(database_settings().sqlalchemy_url)
@@ -529,6 +677,7 @@ def main() -> int:
                 context,
                 args.out_dir / f"osmfeatures-{suffix}.csv",
                 args.out_dir / f"samples-{suffix}.csv",
+                paths=not args.no_path,
             )
     return 0
 

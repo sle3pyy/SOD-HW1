@@ -3,9 +3,12 @@
 import numpy as np
 import pytest
 from features import (
+    NO_PATH_M,
     edge_shapes,
     footprint,
     intrinsic_features,
+    occupancy_grid,
+    path_features,
     positive_index,
     ray_hits,
     sample_footprint,
@@ -105,3 +108,44 @@ def test_visibility_is_blocked_by_buildings():
 def _edges(polygon):
     samples = sample_footprint(polygon)
     return samples.edge_a, samples.edge_b
+
+
+# ---------------------------------------------------------------- paths
+
+OPEN = (0, 0, 50, 50)
+SAMPLE = np.array([[9.0, 25.0]])
+START = SAMPLE + [1.0, 0.0]  # 1 m outside the wall, as in extrinsic_features
+
+
+def test_path_in_open_space_is_straight():
+    grid = occupancy_grid(OPEN, np.array([]))
+    path, access, turn = path_features(grid, SAMPLE, START, np.array([[40.0, 25.0]]))
+    assert access.tolist() == [1]
+    assert path[0] == pytest.approx(31, abs=1.5)
+    assert turn[0] == pytest.approx(1, abs=0.08)
+
+
+def test_path_goes_around_a_wall():
+    wall = np.array([box(20, 0, 22, 45)])
+    grid = occupancy_grid(OPEN, wall)
+    path, access, turn = path_features(grid, SAMPLE, START, np.array([[40.0, 25.0]]))
+    assert access.tolist() == [1]
+    assert path[0] > 31 * 1.3
+    assert turn[0] > 1.3
+
+
+def test_enclosed_start_has_no_path():
+    ring = box(5, 20, 15, 30).difference(box(7, 22, 13, 28))
+    grid = occupancy_grid(OPEN, np.array([ring]))
+    path, access, turn = path_features(grid, SAMPLE, START, np.array([[40.0, 25.0]]))
+    assert access.tolist() == [0]
+    assert path[0] == NO_PATH_M
+    assert turn[0] == 0
+
+
+def test_path_reaches_the_nearest_source():
+    grid = occupancy_grid(OPEN, np.array([]))
+    sources = np.array([[40.0, 25.0], [16.0, 25.0]])
+    path, _, turn = path_features(grid, SAMPLE, START, sources)
+    assert path[0] == pytest.approx(7, abs=1.5)
+    assert turn[0] == pytest.approx(1, abs=0.2)

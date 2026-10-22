@@ -128,6 +128,7 @@ def run_stages(args: argparse.Namespace) -> None:
     run([sys.executable, str(TAGGING / "split_groups.py"), *data_dir, *raw_file])
     run([sys.executable, str(TAGGING / "extraction.py"), *data_dir, *raw_file])
     run([sys.executable, str(TAGGING / "training_tagging.py"), *data_dir])
+    run([sys.executable, str(SRC / "path_error.py"), *data_dir])
     if not args.skip_tagging:
         run([sys.executable, str(TAGGING / "tag_entrances.py"), *data_dir])
 

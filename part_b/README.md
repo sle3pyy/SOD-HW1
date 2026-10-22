@@ -81,11 +81,20 @@ midpoints are the samples (candidate entrances). For every sample it computes:
 - extrinsic features from the context within 150 m: distance to each context type, the visibility
   degree of main roads, service ways, the address street and the railway (sight lines blocked by
   buildings and barriers), whether bicycle parking, landmarks and post boxes are visible, the open
-  area in front of the sample and the distance to the next building along its outward normal.
+  area in front of the sample and the distance to the next building along its outward normal;
+- path features, for main roads, pedestrian ways, service ways, the railway, bicycle parking and the
+  address street: the shortest walking path around obstacles (buildings, barriers, green, water,
+  railway), whether such a path exists, and its turning degree (path / straight-line distance).
 
 Most measures also get a `*_sort` feature: the sample's rank in its building divided by the number of
-samples. The path-distance features of the paper (A* shortest path, accessibility, turning degree) are
-not implemented yet.
+samples.
+
+The paper runs A* from every sample to every context point. Here the context points of one type are
+the sources of a single multi-source Dijkstra (`scipy.sparse.csgraph.dijkstra`) on a 1 m occupancy grid
+around the building. That gives the same shortest paths for all samples at once, and the source each
+one reaches, for the turning degree. A sample without a path gets a path distance of 450 m, accessible
+0 and turning degree 0. `--no-path` skips these features, e.g. to compare with the model without them;
+they add only about 10% to the extraction time.
 
 It writes `data/entrance_tagging/osmfeatures-porto.csv` (raw format, below) and `samples-porto.csv`
 (the coordinates of every sample). `--which targets` writes the same files with the `targets` suffix
@@ -121,6 +130,14 @@ Train WRF and BRF and report the mean distance error over the test buildings (wr
 
 ```bash
 uv run part_b/entrance_tagging/training_tagging.py
+```
+
+This is the paper's linear distance error: the distance along the outline between the predicted and
+the true entrance sample. The path distance error, the walking distance between them outside the
+building, is computed on the same grid as the path features (writes `path_error_<model>.csv`):
+
+```bash
+uv run part_b/src/path_error.py
 ```
 
 `uv run part_b/entrance_tagging/prediction_test.py` runs the same evaluation and plots the cumulative

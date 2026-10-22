@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy>=2.1.4",
     "psycopg[binary]>=3.3.6",
     "geoalchemy2>=0.20.0",
+    "scipy>=1.18.1",
 ]
 
 [tool.uv]
