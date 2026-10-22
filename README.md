@@ -48,3 +48,15 @@ uv run part_b/run_pipeline.py
 ```
 
 See each part's README for the individual stages and options.
+
+## Clean up
+
+`cleanup.sh` removes everything the pipelines generate: the PostGIS container, network and volume (all
+`parta` and `partb` tables) and the generated files in `data/generated/` and `data/entrance_tagging/`
+(features, cross-validation folds, results and figures). The inputs in `data/osm/` and
+`data/porto_taxi/` are kept. It asks for confirmation (`-y` skips it), refuses to run while a Part B
+pipeline is running, and `--dry-run` only lists what it would remove.
+
+```bash
+./cleanup.sh --dry-run
+```
