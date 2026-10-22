@@ -24,11 +24,17 @@ Run every command from the project root.
 uv run part_b/run_pipeline.py
 ```
 
-This imports the OSM data below, then runs the entrance-tagging cross-validation if a raw feature file
-exists. Options: `--aoi-name`, `--aoi-admin-level`, `--extent-buffer-m`, `--skip-osm-import` and
-`--raw-file`.
+This runs the stages below: the OSM import, the feature extraction, the cross-validation and the
+tagging of the target buildings (about 11 minutes in total, most of it the target features). Options:
+`--aoi-name`, `--aoi-admin-level`, `--extent-buffer-m`, `--skip-osm-import`, `--skip-features`,
+`--skip-tagging` and `--raw-file`.
 
-## 1. OSM entrance labels
+Only one pipeline can run at a time: all runs write the same `partb` tables and files in
+`data/entrance_tagging/`, so a second `run_pipeline.py` exits with an error while another one holds the
+lock (`data/entrance_tagging/.pipeline.lock`). The lock is released automatically when the run ends,
+even if it crashes. Running the individual scripts by hand is not locked.
+
+## 1. OSM import: labels, targets and spatial context
 
 ```bash
 uv run part_b/src/import_osm.py
@@ -38,27 +44,63 @@ This reads the PBF (see [`data/README.md`](../data/README.md)) with
 [pyrosm](https://pyrosm.readthedocs.io/) and writes the layers to PostGIS with geopandas; GDAL is not
 needed. It looks up the AOI boundary (`--aoi-name`, `--aoi-admin-level`; the name must match
 exactly), then reads the `entrance=*` nodes and the building footprints within the AOI plus a buffer
-(`--extent-buffer-m`, default 1000 m). It creates:
+(`--extent-buffer-m`, default 1000 m), and the spatial context of the paper's Table 1. It creates:
 
 - `partb.aoi`: the AOI boundary (`name`, `admin_level`, `geom`);
 - `partb.osm_entrances`: all OSM entrance nodes in the extent, with their tags as `jsonb`;
 - `partb.osm_buildings`: all OSM building footprints in the extent (`osm_type`, `osm_id`, tags);
 - `partb.entrance_reference`: entrances classified as `main`, `generic` or `non_public_or_special`;
 - `partb.entrance_reference_buildings`: entrance labels linked to their nearest building footprint
-  within 5 m.
+  within 5 m;
+- `partb.label_buildings`: public facilities in the AOI with exactly one `main` entrance (the training
+  buildings);
+- `partb.target_buildings`: public facilities in the AOI without a `main` entrance (to be tagged);
+- `partb.ctx_roads` (`main`, `pedestrian`, `service`), `partb.ctx_rail`, `partb.ctx_points`
+  (`bicycle_parking`, `landmark`, `post_box`) and `partb.ctx_obstacles` (`barrier`, `green`,
+  `water`): the spatial context, each with a `kind` column.
+
+A building is a public facility when its `building` value is one of a list of public types (public,
+hospital, school, university, church, ...) or it has an `amenity`, `shop`, `office` or `tourism` tag
+(`is_public` in `prepare_entrances.sql`).
 
 `main` nodes are the supervised labels. Entrances are used only as labels for training and evaluation,
 never as model input features.
 
-## 2. Entrance tagging
+## 2. Feature extraction
+
+```bash
+uv run part_b/src/features.py --which labels
+```
+
+Following section 3 of the paper, each footprint's outer ring is split into ~3 m segments; their
+midpoints are the samples (candidate entrances). For every sample it computes:
+
+- intrinsic features from the footprint: distance to the centroid, position on and length of its edge,
+  concave/convex shape of its edge and of the opposite edge, whether its outward normal faces the
+  building itself, and the reflection symmetry axis (existence, distance, edge crossing);
+- extrinsic features from the context within 150 m: distance to each context type, the visibility
+  degree of main roads, service ways, the address street and the railway (sight lines blocked by
+  buildings and barriers), whether bicycle parking, landmarks and post boxes are visible, the open
+  area in front of the sample and the distance to the next building along its outward normal.
+
+Most measures also get a `*_sort` feature: the sample's rank in its building divided by the number of
+samples. The path-distance features of the paper (A* shortest path, accessibility, turning degree) are
+not implemented yet.
+
+It writes `data/entrance_tagging/osmfeatures-porto.csv` (raw format, below) and `samples-porto.csv`
+(the coordinates of every sample). `--which targets` writes the same files with the `targets` suffix
+for the target buildings, whose entrance index is `-1`. A labelled building whose entrance is more than
+5 m from its sampled outline (e.g. on another part of a multi-part footprint) is skipped.
+
+## 3. Cross-validation
 
 The scripts read and write under `data/entrance_tagging/` by default; pass `--data-dir <dir>` to use
 another directory.
 
-The raw feature file (default `osmfeatures-test25.csv`, override with `--raw-file`) has one block per
+The raw feature file (default `osmfeatures-porto.csv`, override with `--raw-file`) has one block per
 building: a header row `building_id, entrance_index, entrance_x, entrance_y, n_samples`, followed by
 `n_samples` rows `row_len, dist_to_next_sample, x, y, name1, value1, name2, value2, ...`. A feature
-that is missing for a sample is left out of its row and imputed later. The paper's original data is
+that is missing for a building is left out of its rows and imputed later. The paper's original data is
 [osmfeatures-test25.xls](https://drive.google.com/file/d/1lVG3zhWKvR1SVVN3QgLGAyxmc0c97QXJ/view?usp=sharing),
 which must be exported to CSV first.
 
@@ -83,3 +125,16 @@ uv run part_b/entrance_tagging/training_tagging.py
 
 `uv run part_b/entrance_tagging/prediction_test.py` runs the same evaluation and plots the cumulative
 distribution of the distance error (`--no-show` saves it to `error_cdf.png` instead).
+
+## 4. Tagging the target buildings
+
+```bash
+uv run part_b/entrance_tagging/tag_entrances.py
+```
+
+This trains a model (`--model brf`, the default, or `wrf`) on all labelled buildings, with the same
+strong-negative sampling and imputation as the cross-validation, and picks the sample with the highest
+positive probability in every target building. It needs `osmfeatures-targets.csv` and
+`samples-targets.csv` from `features.py --which targets`. The result is written to
+`partb.predicted_entrances` and `data/entrance_tagging/predicted_entrances.geojson`: one point per
+target building, with its `probability` and the `margin` to the second most likely sample.

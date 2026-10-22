@@ -27,11 +27,11 @@ def count_buildings(raw_file_name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Split the buildings into cross-validation groups.")
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR, help="Directory holding the raw file and the group folders.")
-    parser.add_argument("--raw-file", type=Path, help="Raw feature file (default: <data-dir>/osmfeatures-test25.csv).")
+    parser.add_argument("--raw-file", type=Path, help="Raw feature file (default: <data-dir>/osmfeatures-porto.csv).")
     parser.add_argument("--groups", type=int, default=5, help="Number of cross-validation groups.")
     parser.add_argument("--seed", type=int, default=0, help="Seed of the random building shuffle.")
     args = parser.parse_args()
-    raw_file_name = args.raw_file or args.data_dir / 'osmfeatures-test25.csv'
+    raw_file_name = args.raw_file or args.data_dir / 'osmfeatures-porto.csv'
     buildings = list(range(count_buildings(raw_file_name)))
     random.Random(args.seed).shuffle(buildings)
     for g in range(1, args.groups+1):

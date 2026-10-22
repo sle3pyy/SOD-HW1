@@ -356,13 +356,13 @@ class DataExtraction:
 if __name__ == "__main__":
      parser = argparse.ArgumentParser(description="Split the raw OSM feature file into per-group training/test sets.")
      parser.add_argument("--data-dir", type=Path, default=DATA_DIR, help="Directory holding the raw file and the group folders.")
-     parser.add_argument("--raw-file", type=Path, help="Raw feature file (default: <data-dir>/osmfeatures-test25.csv).")
+     parser.add_argument("--raw-file", type=Path, help="Raw feature file (default: <data-dir>/osmfeatures-porto.csv).")
      parser.add_argument("--groups", type=int, default=5, help="Number of cross-validation groups.")
      parser.add_argument("--pt", type=float, default=24, help="Physical distance threshold PT (m).")
      parser.add_argument("--ft", type=float, default=0.04, help="Feature distance threshold FT.")
      args = parser.parse_args()
      DATA_DIR = args.data_dir
-     raw_file_name = args.raw_file or DATA_DIR / 'osmfeatures-test25.csv'
+     raw_file_name = args.raw_file or DATA_DIR / 'osmfeatures-porto.csv'
      for i in range(1,args.groups+1):
          print("*"*50)
          print(str(i)+"-th test group")

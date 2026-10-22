@@ -42,6 +42,22 @@ SELECT
   osm_id,
   name,
   building_type,
+  amenity,
+  shop,
+  office,
+  tourism,
+  addr_street,
+  -- Public facilities, as in the paper (building=public), widened to the OSM tags
+  -- that mark a building open to the public.
+  (
+    building_type IN (
+      'public', 'civic', 'government', 'hospital', 'school', 'university', 'college',
+      'train_station', 'transportation', 'church', 'cathedral', 'chapel',
+      'kindergarten', 'museum', 'library', 'commercial', 'retail', 'office', 'hotel',
+      'sports_hall', 'stadium'
+    )
+    OR COALESCE(amenity, shop, office, tourism) IS NOT NULL
+  ) AS is_public,
   tags,
   geom,
   ST_Transform(geom, 3857)::geometry(MultiPolygon, 3857) AS geom_3857
@@ -51,6 +67,11 @@ FROM (
     osm_id,
     NULLIF(name, '') AS name,
     NULLIF(building, '') AS building_type,
+    NULLIF(amenity, '') AS amenity,
+    NULLIF(shop, '') AS shop,
+    NULLIF(office, '') AS office,
+    NULLIF(tourism, '') AS tourism,
+    NULLIF(addr_street, '') AS addr_street,
     tags,
     ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_Force2D(geom)), 3))::geometry(MultiPolygon, 4326) AS geom
   FROM partb.osm_buildings_raw
@@ -116,6 +137,58 @@ CREATE INDEX entrance_reference_buildings_building_idx
 CREATE INDEX entrance_reference_buildings_geom_3857_idx
   ON partb.entrance_reference_buildings USING gist (entrance_geom_3857);
 
+-- Training buildings: public facilities in the AOI with exactly one main entrance.
+DROP TABLE IF EXISTS partb.label_buildings;
+CREATE TABLE partb.label_buildings AS
+WITH main_links AS (
+  SELECT building_id, min(entrance_osm_id) AS entrance_osm_id, count(*) AS main_count
+  FROM partb.entrance_reference_buildings
+  WHERE reference_class = 'main' AND building_id IS NOT NULL
+  GROUP BY building_id
+)
+SELECT
+  b.building_id,
+  b.osm_type,
+  b.osm_id,
+  b.name,
+  b.building_type,
+  b.amenity,
+  b.addr_street,
+  e.osm_id AS entrance_osm_id,
+  e.geom AS entrance_geom,
+  b.geom,
+  b.geom_3857
+FROM partb.osm_buildings b
+JOIN main_links m ON m.building_id = b.building_id AND m.main_count = 1
+JOIN partb.osm_entrances e ON e.osm_id = m.entrance_osm_id
+WHERE b.is_public
+  AND EXISTS (SELECT 1 FROM partb.aoi a WHERE ST_Intersects(a.geom, b.geom));
+
+ALTER TABLE partb.label_buildings ADD PRIMARY KEY (building_id);
+
+-- Tagging targets: public facilities in the AOI without a main entrance.
+DROP TABLE IF EXISTS partb.target_buildings;
+CREATE TABLE partb.target_buildings AS
+SELECT
+  b.building_id,
+  b.osm_type,
+  b.osm_id,
+  b.name,
+  b.building_type,
+  b.amenity,
+  b.addr_street,
+  b.geom,
+  b.geom_3857
+FROM partb.osm_buildings b
+WHERE b.is_public
+  AND EXISTS (SELECT 1 FROM partb.aoi a WHERE ST_Intersects(a.geom, b.geom))
+  AND NOT EXISTS (
+    SELECT 1 FROM partb.entrance_reference_buildings r
+    WHERE r.building_id = b.building_id AND r.reference_class = 'main'
+  );
+
+ALTER TABLE partb.target_buildings ADD PRIMARY KEY (building_id);
+
 ANALYZE partb.osm_entrances;
 ANALYZE partb.osm_buildings;
 ANALYZE partb.entrance_reference;
@@ -131,3 +204,7 @@ SELECT
   count(*) FILTER (WHERE building_id IS NOT NULL) AS entrances_linked_to_building,
   count(*) FILTER (WHERE building_id IS NULL) AS unlinked_entrances
 FROM partb.entrance_reference_buildings;
+
+SELECT
+  (SELECT count(*) FROM partb.label_buildings) AS label_buildings,
+  (SELECT count(*) FROM partb.target_buildings) AS target_buildings;

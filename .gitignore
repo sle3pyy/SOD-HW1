@@ -7,5 +7,7 @@ HW01_spatialDataAnalysis.md
 *.pbf
 *.gpkg
 data/osm/*
-data/entrance_tagging/*
+data/entrance_tagging/*.csv
+data/entrance_tagging/*/*.csv
+data/entrance_tagging/*.geojson
 data/generated/*
