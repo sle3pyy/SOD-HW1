@@ -8,7 +8,7 @@ import fcntl
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -75,7 +75,7 @@ def run(command: list[str]) -> None:
 
 
 @contextmanager
-def pipeline_lock() -> Iterator[None]:
+def pipeline_lock() -> Generator[None]:
     """Hold an exclusive lock so two pipelines never write the same files and tables.
 
     The operating system releases the lock when the process exits, even after a
