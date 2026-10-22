@@ -27,7 +27,7 @@ uv run part_b/run_pipeline.py
 This runs the stages below: the OSM import, the feature extraction, the cross-validation and the
 tagging of the target buildings (about 11 minutes in total, most of it the target features). Options:
 `--aoi-name`, `--aoi-admin-level`, `--extent-buffer-m`, `--skip-osm-import`, `--skip-features`,
-`--skip-tagging` and `--raw-file`.
+`--skip-tagging`, `--skip-report` and `--raw-file`.
 
 Only one pipeline can run at a time: all runs write the same `partb` tables and files in
 `data/entrance_tagging/`, so a second `run_pipeline.py` exits with an error while another one holds the
@@ -155,3 +155,22 @@ positive probability in every target building. It needs `osmfeatures-targets.csv
 `samples-targets.csv` from `features.py --which targets`. The result is written to
 `partb.predicted_entrances` and `data/entrance_tagging/predicted_entrances.geojson`: one point per
 target building, with its `probability` and the `margin` to the second most likely sample.
+
+## 5. Report statistics and figures
+
+```bash
+uv run part_b/src/report_figures.py
+```
+
+This reads the `partb` tables and the pipeline's files (it never writes to the database) and writes the
+exploratory analysis and the validation for the report to `data/entrance_tagging/figures/`. Every
+figure is a PNG with a CSV of its data, and `summary.md` collects all tables:
+
+- exploratory analysis: `data_inventory`, `anomalies` (several main entrances, unlinked entrances,
+  multi-part footprints, skipped labels), `spatial_stats` (Clark-Evans nearest-neighbour ratio),
+  `fig_map`, `fig_building_size` (with a Kolmogorov-Smirnov test, labels vs targets),
+  `fig_building_types`, `fig_context_coverage`, `fig_class_imbalance` and `fig_positive_vs_negative`
+  (which cues separate the true entrances, with Mann-Whitney tests);
+- validation: `results` (linear and path error of BRF, WRF and three baselines: the sample nearest the
+  centroid, the sample nearest a main road and a random sample), `fig_error_cdf` and
+  `fig_prediction_confidence`.

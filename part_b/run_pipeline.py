@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the Part B pipeline: OSM import, features, cross-validation and tagging."""
+"""Run the Part B pipeline: OSM import, features, CV, tagging and report figures."""
 
 from __future__ import annotations
 
@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DATA_DIR / "osmfeatures-porto.csv",
         help="Raw feature file for cross-validation (with --skip-features, e.g. the paper's).",
+    )
+    parser.add_argument(
+        "--skip-report",
+        action="store_true",
+        help="Skip the report statistics and figures.",
     )
     parser.add_argument(
         "--skip-tagging",
@@ -131,6 +136,9 @@ def run_stages(args: argparse.Namespace) -> None:
     run([sys.executable, str(SRC / "path_error.py"), *data_dir])
     if not args.skip_tagging:
         run([sys.executable, str(TAGGING / "tag_entrances.py"), *data_dir])
+    # The report reads the tagged targets, so it needs the tagging stage.
+    if not args.skip_report and not args.skip_tagging:
+        run([sys.executable, str(SRC / "report_figures.py"), *data_dir])
 
 
 if __name__ == "__main__":

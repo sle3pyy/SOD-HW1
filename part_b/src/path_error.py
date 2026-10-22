@@ -40,6 +40,47 @@ def test_blocks(data_dir: Path, groups: int) -> list[int]:
     return blocks
 
 
+def block_buildings(data_dir: Path) -> pd.Series:
+    """building_id of every block (row block) of the labelled raw feature file."""
+    samples = pd.read_csv(data_dir / "samples-porto.csv")
+    return samples.groupby("block_index")["building_id"].first()
+
+
+def building_walks(engine, blocks: list[int], building_of: pd.Series) -> dict:
+    """Occupancy grid, sample points and path starts of each block's building."""
+    context = Context(engine)
+    footprints = gpd.read_postgis(
+        f"SELECT building_id, ST_Transform(geom, {METRIC_CRS}) AS geom "
+        "FROM partb.label_buildings",
+        engine,
+        geom_col="geom",
+    ).set_index("building_id")["geom"]
+    walks = {}
+    for block in sorted(set(blocks)):
+        geom = footprints[building_of[block]]
+        samples = sample_footprint(footprint(geom))
+        area = shapely.buffer(geom, CONTEXT_RADIUS_M)
+        near = {kind: layer.near(area) for kind, layer in context.layers.items()}
+        grid = occupancy_grid(
+            area.bounds, path_obstacles(near, context.buildings.near(area))
+        )
+        starts = samples.points + samples.normal * PATH_START_OFFSET_M
+        walks[block] = (grid, samples.points, starts)
+    return walks
+
+
+def walking_error(walk, predicted: int, truth: int) -> float:
+    """Walking distance outside the building between two samples (NaN without a path)."""
+    if predicted == truth:
+        return 0.0
+    grid, points, starts = walk
+    path, access, _ = path_features(
+        grid, points[[predicted]], starts[[predicted]], starts[[truth]]
+    )
+    # path_features adds the step out of the wall at the predicted end only.
+    return path[0] + PATH_START_OFFSET_M if access[0] else np.nan
+
+
 def summary(errors: pd.Series) -> str:
     return (
         f"mean {errors.mean():5.1f} m  median {errors.median():5.1f} m  "
@@ -60,58 +101,23 @@ def main() -> int:
     args = parser.parse_args()
 
     blocks = test_blocks(args.data_dir, args.groups)
-    building_of = (
-        pd.read_csv(args.data_dir / "samples-porto.csv")
-        .groupby("block_index")["building_id"]
-        .first()
-    )
+    building_of = block_buildings(args.data_dir)
     engine = create_engine(database_settings().sqlalchemy_url)
-    context = Context(engine)
-    footprints = gpd.read_postgis(
-        f"SELECT building_id, ST_Transform(geom, {METRIC_CRS}) AS geom "
-        "FROM partb.label_buildings",
-        engine,
-        geom_col="geom",
-    ).set_index("building_id")["geom"]
-
     # One grid per test building, shared by every model.
-    walks = {}
-    for block in blocks:
-        geom = footprints[building_of[block]]
-        samples = sample_footprint(footprint(geom))
-        area = shapely.buffer(geom, CONTEXT_RADIUS_M)
-        near = {kind: layer.near(area) for kind, layer in context.layers.items()}
-        grid = occupancy_grid(
-            area.bounds, path_obstacles(near, context.buildings.near(area))
-        )
-        starts = samples.points + samples.normal * PATH_START_OFFSET_M
-        walks[block] = (grid, samples.points, starts)
+    walks = building_walks(engine, blocks, building_of)
 
     for model in args.models:
         results = pd.read_csv(args.data_dir / f"tagging_result_{model}.csv")
         if len(results) != len(blocks):
             raise SystemExit(f"error: {model} results do not match the CV groups")
-        rows = []
-        for block, (_, row) in zip(blocks, results.iterrows(), strict=True):
-            predicted, truth = int(row["0"]), int(row["1"])
-            path = 0.0
-            if predicted != truth:
-                grid, points, starts = walks[block]
-                walk, access, _ = path_features(
-                    grid,
-                    points[[predicted]],
-                    starts[[predicted]],
-                    starts[[truth]],
-                )
-                # path_features adds the step out of the wall at the predicted end only.
-                path = walk[0] + PATH_START_OFFSET_M if access[0] else np.nan
-            rows.append(
-                {
-                    "building_id": building_of[block],
-                    "linear_m": row["5"],
-                    "path_m": path,
-                }
-            )
+        rows = [
+            {
+                "building_id": building_of[block],
+                "linear_m": row["5"],
+                "path_m": walking_error(walks[block], int(row["0"]), int(row["1"])),
+            }
+            for block, (_, row) in zip(blocks, results.iterrows(), strict=True)
+        ]
         errors = pd.DataFrame(rows)
         errors.to_csv(args.data_dir / f"path_error_{model}.csv", index=False)
         unreachable = int(errors["path_m"].isna().sum())
