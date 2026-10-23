@@ -597,11 +597,13 @@ def validation(
         predicted = dict(zip(order, results["0"].astype(int), strict=True))
         picks[model.upper()] = [predicted[block] for block in blocks]
 
-    rows, curves = [], []
+    rows, curves, intervals = [], [], []
     for method, chosen in picks.items():
         lin = np.array([linear[k][i] for k, i in enumerate(chosen)])
         pth = np.array([path[k][i] for k, i in enumerate(chosen)])
         rows.append(metrics(method, lin, pth))
+        if method in ("BRF", "WRF"):
+            intervals.append(bootstrap(method, lin, pth))
         curves.append(
             pd.DataFrame(
                 {
@@ -632,8 +634,132 @@ def validation(
         "(Hu et al.: ~21 m). Path: walking distance outside the building (Hu et al.: ~22 m); "
         "buildings without a walking path are left out of the path columns.",
     )
+    writer.table(
+        "results_ci",
+        f"Validation: 95% bootstrap intervals ({BOOTSTRAP_RESAMPLES} building resamples)",
+        pd.DataFrame(intervals),
+    )
     fig_error_cdf(writer, pd.concat(curves, ignore_index=True))
+    fig_examples(engine, writer, labels, picks, linear, building_of, data_dir)
     return table
+
+
+BOOTSTRAP_RESAMPLES = 10_000
+
+
+def bootstrap(method: str, linear: np.ndarray, path: np.ndarray) -> dict:
+    """Percentile intervals of the mean and median error, resampling buildings."""
+    rng = np.random.default_rng(0)
+    row = {"method": method}
+    for name, values in [("linear", linear), ("path", path[np.isfinite(path)])]:
+        resampled = rng.choice(values, size=(BOOTSTRAP_RESAMPLES, len(values)))
+        for stat, func in [("mean", np.mean), ("median", np.median)]:
+            low, high = np.percentile(func(resampled, axis=1), [2.5, 97.5])
+            row[f"{name} {stat} 95% CI (m)"] = f"{low:.1f}–{high:.1f}"
+    return row
+
+
+def fig_examples(
+    engine,
+    writer: Writer,
+    labels: list[dict],
+    picks: dict,
+    linear: list[np.ndarray],
+    building_of: pd.Series,
+    data_dir: Path,
+) -> None:
+    """Three labelled buildings: a BRF hit where the nearest road fails, a typical case, a miss."""
+    brf = np.array([linear[k][i] for k, i in enumerate(picks["BRF"])])
+    road = np.array(
+        [linear[k][i] for k, i in enumerate(picks["main-road-nearest sample"])]
+    )
+    hits = np.flatnonzero(brf <= 3)
+    chosen = {
+        "(a) hit": int(hits[np.argmax(road[hits])]),
+        "(b) typical": int(np.argmin(np.abs(brf - np.median(brf)))),
+        "(c) miss": int(np.argmax(brf)),
+    }
+    ids = ", ".join(str(int(building_of[k])) for k in chosen.values())
+    footprints = gpd.read_postgis(
+        f"SELECT building_id, building_type, amenity, ST_Transform(geom, {METRIC_CRS}) AS geom "
+        f"FROM partb.label_buildings WHERE building_id IN ({ids})",
+        engine,
+        geom_col="geom",
+    ).set_index("building_id")
+    roads = gpd.read_postgis(
+        f"SELECT kind, ST_Transform(r.geom, {METRIC_CRS}) AS geom FROM partb.ctx_roads r "
+        "JOIN partb.label_buildings b ON ST_DWithin(ST_Transform(r.geom, "
+        f"{METRIC_CRS}), ST_Transform(b.geom, {METRIC_CRS}), 60) "
+        f"WHERE r.kind IN ('main', 'pedestrian') AND b.building_id IN ({ids})",
+        engine,
+        geom_col="geom",
+    )
+    samples = pd.read_csv(data_dir / "samples-porto.csv")
+    samples = gpd.GeoDataFrame(
+        samples,
+        geometry=gpd.points_from_xy(samples["lon"], samples["lat"]),
+        crs=4326,
+    ).to_crs(METRIC_CRS)
+
+    fig, axes = plt.subplots(1, 3, figsize=(10, 4))
+    rows = []
+    for ax, (title, block) in zip(axes, chosen.items(), strict=True):
+        building = footprints.loc[int(building_of[block])]
+        points = samples[samples["block_index"] == block].sort_values("sample_index")
+        xy = np.column_stack([points.geometry.x, points.geometry.y])
+        marks = {
+            "true entrance": labels[block]["entrance_index"],
+            "BRF": picks["BRF"][block],
+            "nearest main road": picks["main-road-nearest sample"][block],
+        }
+        minx, miny, maxx, maxy = building.geom.buffer(25).bounds
+        for kind, color, width in [("main", REFERENCE, 2), ("pedestrian", ROADS, 1)]:
+            roads[roads["kind"] == kind].plot(ax=ax, color=color, linewidth=width)
+        gpd.GeoSeries([building.geom]).plot(
+            ax=ax, color=GRID, edgecolor=TEXT_SECONDARY, linewidth=1
+        )
+        ax.scatter(xy[:, 0], xy[:, 1], s=6, color=REFERENCE, zorder=3)
+        # Hollow markers drawn first, so an exact hit still shows the BRF dot.
+        styles = {
+            "true entrance": {
+                "s": 110,
+                "facecolor": "none",
+                "edgecolor": TARGETS,
+                "marker": "D",
+            },
+            "nearest main road": {"s": 90, "facecolor": "none", "edgecolor": TEXT},
+            "BRF": {"s": 35, "color": LABELS},
+        }
+        for mark, style_ in styles.items():
+            x, y = xy[marks[mark]]
+            ax.scatter(x, y, zorder=4, linewidth=1.5, label=mark, **style_)
+        ax.set_xlim(minx, maxx)
+        ax.set_ylim(miny, maxy)
+        ax.set_aspect("equal")
+        ax.set_axis_off()
+        kind = next(
+            (
+                v
+                for v in (building.amenity, building.building_type)
+                if pd.notna(v) and v != "yes"
+            ),
+            "building",
+        )
+        ax.set_title(
+            f"{title} ({kind})\nBRF {brf[block]:.0f} m, road {road[block]:.0f} m",
+            loc="left",
+        )
+        rows.append(
+            {
+                "panel": title,
+                "building_id": int(building_of[block]),
+                "type": kind,
+                "brf_error_m": round(float(brf[block]), 1),
+                "road_error_m": round(float(road[block]), 1),
+            }
+        )
+    axes[0].legend(loc="lower left", bbox_to_anchor=(0, -0.25), ncol=3)
+    writer.figure(fig, "fig_examples", pd.DataFrame(rows))
 
 
 def metrics(method: str, linear: np.ndarray, path: np.ndarray, within=None) -> dict:

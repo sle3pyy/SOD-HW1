@@ -102,6 +102,13 @@ Rank features are a sample's rank in its building divided by the number of sampl
 
 Linear: distance along the outline between the predicted and the true entrance sample (Hu et al.: ~21 m). Path: walking distance outside the building (Hu et al.: ~22 m); buildings without a walking path are left out of the path columns.
 
+## Validation: 95% bootstrap intervals (10000 building resamples)
+
+| method | linear mean 95% CI (m) | linear median 95% CI (m) | path mean 95% CI (m) | path median 95% CI (m) |
+|---|---|---|---|---|
+| BRF | 15.7–27.9 | 5.8–16.1 | 15.9–29.0 | 8.1–15.3 |
+| WRF | 21.1–36.2 | 9.8–23.1 | 23.3–40.8 | 9.0–24.1 |
+
 ## Tagged targets: confidence
 
 | statistic | probability | margin |
