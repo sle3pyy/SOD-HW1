@@ -62,6 +62,22 @@ const predictedEntrances = L.markerClusterGroup({
     });
   },
 });
+const trueEntrances = L.markerClusterGroup({
+  chunkedLoading: true,
+  maxClusterRadius: 48,
+  disableClusteringAtZoom: 17,
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  iconCreateFunction: (cluster) => {
+    const count = cluster.getChildCount();
+    const size = count < 10 ? 40 : count < 100 ? 46 : 52;
+    return L.divIcon({
+      className: "true-entrance-cluster-icon",
+      html: `<span>${count}</span>`,
+      iconSize: L.point(size, size),
+    });
+  },
+});
 
 const roads = L.tileLayer.wms(wmsUrl, {
   ...wmsOptions,
@@ -72,6 +88,7 @@ const roads = L.tileLayer.wms(wmsUrl, {
 streetMap.addTo(map);
 buildings.addTo(map);
 predictedEntrances.addTo(map);
+trueEntrances.addTo(map);
 
 const entranceCount = document.querySelector<HTMLElement>("#entrance-count");
 const serviceStatus = document.querySelector<HTMLElement>("#service-status-label");
@@ -83,6 +100,13 @@ const predictedEntranceIcon = L.divIcon({
   iconSize: [36, 40],
   iconAnchor: [18, 38],
   popupAnchor: [0, -34],
+});
+const trueEntranceIcon = L.divIcon({
+  className: "true-entrance-icon",
+  html: '<span class="true-entrance-marker" aria-hidden="true"></span>',
+  iconSize: [34, 38],
+  iconAnchor: [17, 36],
+  popupAnchor: [0, -32],
 });
 
 const queryableLayers = [
@@ -115,6 +139,9 @@ function featureTitle(label: string, properties: Record<string, unknown>): strin
   if (label === "Predicted entrance") {
     return String(properties.name || "Predicted entrance");
   }
+  if (label === "True entrance") {
+    return String(properties.building_name || "True entrance");
+  }
   return String(properties.name || label);
 }
 
@@ -131,6 +158,20 @@ function featureDetails(
       ["Confidence", Number.isFinite(confidence) ? `${(confidence * 100).toFixed(1)}%` : null],
       ["Confidence margin", Number.isFinite(margin) ? margin.toFixed(3) : null],
       ["Building ID", properties.building_id],
+    ];
+  }
+  if (label === "True entrance") {
+    return [
+      ["Linked building", properties.building_name || properties.building_id],
+      ["Building type", properties.building_type],
+      ["Building OSM ID", properties.building_osm_id],
+      ["Entrance OSM ID", properties.entrance_osm_id],
+      [
+        "Entrance to building",
+        properties.building_distance_m != null
+          ? `${Number(properties.building_distance_m).toFixed(1)} m`
+          : null,
+      ],
     ];
   }
   if (label === "Building") {
@@ -237,6 +278,41 @@ async function loadPredictedEntrances(): Promise<void> {
 
 void loadPredictedEntrances();
 
+async function loadTrueEntrances(): Promise<void> {
+  const parameters = new URLSearchParams({
+    service: "WFS",
+    version: "1.0.0",
+    request: "GetFeature",
+    typeName: "sod:true_entrances",
+    outputFormat: "application/json",
+  });
+
+  try {
+    const response = await fetch(`/geoserver/sod/ows?${parameters.toString()}`);
+    if (!response.ok) {
+      throw new Error(`GeoServer returned HTTP ${response.status}`);
+    }
+    const collection = (await response.json()) as GeoJSON.GeoJsonObject;
+    const markers = L.geoJSON(collection, {
+      pointToLayer: (_feature, latlng) =>
+        L.marker(latlng, {
+          icon: trueEntranceIcon,
+          title: "True entrance; click to see its linked building",
+          bubblingMouseEvents: false,
+        }),
+      onEachFeature: (feature, marker) => {
+        const properties = (feature.properties ?? {}) as Record<string, unknown>;
+        marker.bindPopup(featurePopup("True entrance", properties), { maxWidth: 320 });
+      },
+    });
+    trueEntrances.addLayers(markers.getLayers());
+  } catch (error) {
+    console.error("Could not load true entrances from GeoServer WFS:", error);
+  }
+}
+
+void loadTrueEntrances();
+
 async function fetchFeatureCount(typeName: string): Promise<number> {
   const parameters = new URLSearchParams({
     service: "WFS",
@@ -319,6 +395,7 @@ L.control
     },
     {
       "Predicted entrances": predictedEntrances,
+      "True entrances": trueEntrances,
       "OSM buildings": buildings,
       "Road context": roads,
     },
