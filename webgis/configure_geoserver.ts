@@ -151,6 +151,22 @@ async function publishAvailableLayers(name: string): Promise<void> {
   }
 }
 
+async function refreshPredictionAttributes(): Promise<void> {
+  const partBStore = dataStores.find(
+    (store) => store.name === (process.env.GEOSERVER_PARTB_DATASTORE ?? "partb"),
+  );
+  if (!partBStore) return;
+
+  const path = `/workspaces/${workspace}/datastores/${partBStore.name}/featuretypes/predicted_entrances.json`;
+  const response = await request("GET", path);
+  if (response.status === 404) return;
+
+  await request("PUT", `${path}?recalculate=attributes`, {
+    featureType: { name: "predicted_entrances" },
+  });
+  console.log("Refreshed GeoServer attributes for predicted_entrances.");
+}
+
 async function main(): Promise<void> {
   await waitUntilReady();
   await ensureWorkspace();
@@ -158,6 +174,7 @@ async function main(): Promise<void> {
     await ensurePostgisStore(store.name, store.schema);
     await publishAvailableLayers(store.name);
   }
+  await refreshPredictionAttributes();
 }
 
 main().catch((error: unknown) => {

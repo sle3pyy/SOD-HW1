@@ -91,6 +91,7 @@ predictedEntrances.addTo(map);
 trueEntrances.addTo(map);
 
 const entranceCount = document.querySelector<HTMLElement>("#entrance-count");
+const averageDistance = document.querySelector<HTMLElement>("#stat-average-distance");
 const serviceStatus = document.querySelector<HTMLElement>("#service-status-label");
 const numberFormat = new Intl.NumberFormat("en-GB");
 
@@ -157,6 +158,12 @@ function featureDetails(
       ["Model", properties.model],
       ["Confidence", Number.isFinite(confidence) ? `${(confidence * 100).toFixed(1)}%` : null],
       ["Confidence margin", Number.isFinite(margin) ? margin.toFixed(3) : null],
+      [
+        "Distance to true entrance",
+        properties.true_distance_m != null
+          ? `${Number(properties.true_distance_m).toFixed(1)} m`
+          : null,
+      ],
       ["Building ID", properties.building_id],
     ];
   }
@@ -243,6 +250,25 @@ async function loadPredictedEntrances(): Promise<void> {
     }
 
     const collection = (await response.json()) as GeoJSON.GeoJsonObject;
+    const features = (collection as GeoJSON.FeatureCollection).features ?? [];
+    const distances = features
+      .map((feature) => feature.properties?.true_distance_m)
+      .filter((value) => value !== null && value !== undefined && value !== "")
+      .map(Number)
+      .filter(Number.isFinite);
+    if (averageDistance) {
+      if (distances.length > 0) {
+        const mean =
+          distances.reduce((total, distance) => total + distance, 0) / distances.length;
+        averageDistance.textContent = `${mean.toFixed(1)} m`;
+        averageDistance.title = `Across ${numberFormat.format(
+          distances.length,
+        )} predictions with a linked true entrance`;
+      } else {
+        averageDistance.textContent = "—";
+        averageDistance.title = "No predictions have a linked true entrance";
+      }
+    }
     const markers = L.geoJSON(collection, {
       pointToLayer: (_feature, latlng) =>
         L.marker(latlng, {
@@ -269,6 +295,9 @@ async function loadPredictedEntrances(): Promise<void> {
     console.error("Could not load predicted entrances from GeoServer WFS:", error);
     if (entranceCount) {
       entranceCount.textContent = "Could not load predictions";
+    }
+    if (averageDistance) {
+      averageDistance.textContent = "—";
     }
     if (serviceStatus) {
       serviceStatus.textContent = "GeoServer connection issue";

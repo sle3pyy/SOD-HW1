@@ -18,7 +18,7 @@ from extraction import DataExtraction
 from sod_common.paths import DATA_DIR as PROJECT_DATA_DIR
 from sod_common.postgis import database_settings
 from split_groups import count_buildings
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from training_tagging import build_models
 
 DATA_DIR = PROJECT_DATA_DIR / "entrance_tagging"
@@ -102,11 +102,40 @@ def main() -> int:
         ["building_id", "name", "building_type", "amenity", "model", "probability"]
         + ["margin", "sample_index", "n_samples", "geometry"]
     ].rename_geometry("geom")
+    predicted["true_distance_m"] = np.nan
     predicted.to_postgis(
         "predicted_entrances", engine, schema="partb", if_exists="replace", index=False
     )
+
+    distance_sql = text(
+        """
+        UPDATE partb.predicted_entrances AS p
+        SET true_distance_m = (
+          SELECT ST_Distance(p.geom::geography, r.entrance_geom::geography)
+          FROM partb.entrance_reference_buildings AS r
+          WHERE r.building_id = p.building_id
+            AND r.reference_class = 'main'
+          ORDER BY ST_Distance(p.geom::geography, r.entrance_geom::geography)
+          LIMIT 1
+        )
+        """
+    )
+    with engine.begin() as connection:
+        connection.execute(distance_sql)
+
+    distances = pd.read_sql(
+        "SELECT building_id, true_distance_m FROM partb.predicted_entrances", engine
+    ).set_index("building_id")["true_distance_m"]
+    predicted["true_distance_m"] = predicted["building_id"].map(distances)
+
     geojson = args.data_dir / "predicted_entrances.geojson"
     predicted.to_file(geojson, driver="GeoJSON")
+    distance_values = predicted["true_distance_m"].dropna()
+    if not distance_values.empty:
+        print(
+            f"Mean distance to linked true entrance: {distance_values.mean():.1f} m "
+            f"({len(distance_values)} buildings)"
+        )
     print(
         f"Tagged {len(predicted)} buildings with {args.model}: partb.predicted_entrances, {geojson}"
     )

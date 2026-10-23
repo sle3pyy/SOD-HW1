@@ -56,7 +56,8 @@ exactly), then reads the `entrance=*` nodes and the building footprints within t
   within 5 m;
 - `partb.label_buildings`: public facilities in the AOI with exactly one `main` entrance (the training
   buildings);
-- `partb.target_buildings`: public facilities in the AOI without a `main` entrance (to be tagged);
+- `partb.target_buildings`: all public facilities in the AOI, including labelled buildings, for
+  generating predictions that can be compared visually with known entrances;
 - `partb.ctx_roads` (`main`, `pedestrian`, `service`), `partb.ctx_rail`, `partb.ctx_points`
   (`bicycle_parking`, `landmark`, `post_box`) and `partb.ctx_obstacles` (`barrier`, `green`,
   `water`): the spatial context, each with a `kind` column.
@@ -67,6 +68,11 @@ hospital, school, university, church, ...) or it has an `amenity`, `shop`, `offi
 
 `main` nodes are the supervised labels. Entrances are used only as labels for training and evaluation,
 never as model input features.
+
+Predictions for buildings that also appear in `partb.label_buildings` are in-sample predictions;
+use the held-out cross-validation results for independent model evaluation.
+For each prediction with a linked `main` entrance, the pipeline stores the distance in metres to
+the nearest such entrance as `true_distance_m`; the WebGIS displays the mean over available matches.
 
 ## 2. Feature extraction
 

@@ -166,7 +166,8 @@ WHERE b.is_public
 
 ALTER TABLE partb.label_buildings ADD PRIMARY KEY (building_id);
 
--- Tagging targets: public facilities in the AOI without a main entrance.
+-- Prediction set: all public facilities in the AOI, including labelled buildings,
+-- so predictions can be displayed alongside known main entrances in the WebGIS.
 DROP TABLE IF EXISTS partb.target_buildings;
 CREATE TABLE partb.target_buildings AS
 SELECT
@@ -181,11 +182,7 @@ SELECT
   b.geom_3857
 FROM partb.osm_buildings b
 WHERE b.is_public
-  AND EXISTS (SELECT 1 FROM partb.aoi a WHERE ST_Intersects(a.geom, b.geom))
-  AND NOT EXISTS (
-    SELECT 1 FROM partb.entrance_reference_buildings r
-    WHERE r.building_id = b.building_id AND r.reference_class = 'main'
-  );
+  AND EXISTS (SELECT 1 FROM partb.aoi a WHERE ST_Intersects(a.geom, b.geom));
 
 ALTER TABLE partb.target_buildings ADD PRIMARY KEY (building_id);
 

@@ -169,7 +169,7 @@ def inventory(engine, writer: Writer, labels_used: int) -> None:
     UNION ALL SELECT 4, 'entrances in AOI + 1 km', count(*)::text FROM partb.osm_entrances
     UNION ALL SELECT 5, 'entrances: ' || reference_class, count(*)::text FROM partb.entrance_reference GROUP BY reference_class
     UNION ALL SELECT 6, 'label buildings (public, exactly one main entrance)', count(*)::text FROM partb.label_buildings
-    UNION ALL SELECT 7, 'target buildings (public, no main entrance)', count(*)::text FROM partb.target_buildings
+    UNION ALL SELECT 7, 'prediction buildings (all public facilities in AOI)', count(*)::text FROM partb.target_buildings
     UNION ALL SELECT 8, 'context: road ' || kind, count(*)::text FROM partb.ctx_roads GROUP BY kind
     UNION ALL SELECT 9, 'context: railway', count(*)::text FROM partb.ctx_rail
     UNION ALL SELECT 10, 'context: ' || kind, count(*)::text FROM partb.ctx_points GROUP BY kind
