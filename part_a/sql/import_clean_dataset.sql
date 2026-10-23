@@ -4,6 +4,7 @@
 CREATE SCHEMA IF NOT EXISTS parta;
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+\echo [1/3] Creating the raw GPS table and importing endpoint CSV
 DROP TABLE IF EXISTS parta.porto_points_raw;
 CREATE TABLE parta.porto_points_raw (
   trip_id text NOT NULL,
@@ -18,6 +19,7 @@ COPY parta.porto_points_raw (trip_id, taxi_id, point_index, recorded_at, longitu
 FROM '/data/porto.csv'
 WITH (FORMAT csv, HEADER true);
 
+\echo [2/3] Building indexed GPS point table
 DROP TABLE IF EXISTS parta.porto_points;
 CREATE TABLE parta.porto_points AS
 SELECT
@@ -43,7 +45,6 @@ ALTER TABLE parta.porto_points
 CREATE INDEX porto_points_taxi_time_idx
   ON parta.porto_points (taxi_id, recorded_at);
 
--- Preserve trajectory order for Part B's drop-off and approach features.
 CREATE UNIQUE INDEX porto_points_trip_point_idx
   ON parta.porto_points (trip_id, point_index);
 
@@ -58,6 +59,7 @@ CREATE INDEX porto_points_geom_3857_idx
 ANALYZE parta.porto_points_raw;
 ANALYZE parta.porto_points;
 
+\echo [3/3] Import summary
 SELECT
   count(*) AS point_count,
   count(DISTINCT trip_id) AS trip_count,

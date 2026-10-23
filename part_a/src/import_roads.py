@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+from time import perf_counter
 
 from ogr import extent_buffer_meters, import_layer, query_bounds
 from sod_common.paths import PBF, ROOT
@@ -44,7 +45,6 @@ def main() -> int:
     """
     bounds = query_bounds(settings, extent_sql, "Import Part A points first.")
 
-    print(f"Importing PBF roads within GPS extent + {buffer_m:g} m into {target_table}...")
     import_layer(settings, PBF, "lines", "highway IS NOT NULL", target_table, bounds, "PROMOTE_TO_MULTI")
     run_sql(
         ROOT,
@@ -55,8 +55,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    started = perf_counter()
     try:
         raise SystemExit(main())
     except (RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1)
+    finally:
+        print(f"[TIMER] import_roads.py: {perf_counter() - started:.1f}s", flush=True)

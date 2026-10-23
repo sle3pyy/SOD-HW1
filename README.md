@@ -4,7 +4,7 @@
 | --- | --- |
 | [`part_a/`](part_a/README.md) | Part A.1: map-matching Porto taxi GPS points to the OSM road network in PostGIS |
 | [`part_b/`](part_b/README.md) | Part B: main-entrance detection for public buildings from OSM (Hu et al., 2021) |
-| `webgis/` | Part A.2: WebGIS over the Part B results (not started) |
+| `webgis/` | Part A.2: TypeScript/Leaflet map and GeoServer/PostGIS provisioning |
 | `common/` | `sod_common`, the code shared by both parts: project paths, PostGIS access, OSM PBF imports |
 | [`data/`](data/README.md) | Input and generated data (large files are not committed) |
 | `qgis/` | QGIS project and the `pg_service.conf` for the PostGIS service |
@@ -29,11 +29,25 @@ the project root:
 uv sync
 ```
 
-Download the OSM extract as described in [`data/README.md`](data/README.md), then start PostGIS:
+Download the OSM extract as described in [`data/README.md`](data/README.md). For Part A.2, copy
+`.env.example` to `.env` and set a local GeoServer admin password. Start PostGIS, GeoServer, and the
+WebGIS page:
 
 ```bash
-docker compose up -d postgis
+cp .env.example .env
+docker compose up -d --build postgis geoserver geoserver-config webgis
 ```
+
+The WebGIS is available at <http://localhost:8088>; GeoServer administration is at
+<http://localhost:8600/geoserver>. The sidebar ends with live counts for
+predicted entrances, OSM buildings, and road features. The `geoserver-config` service waits for
+GeoServer, then creates the `sod` workspace and `parta` and `partb` PostGIS stores using host
+`postgis`, port `5432`, database `gis`, and the credentials from `.env`. The project network keeps
+container-to-container traffic internal; the web UI is published only on localhost. GeoServer
+configuration persists in the `geoserver-data` Docker volume. The TypeScript provisioning job is
+built from the WebGIS npm project. After either Part A or Part B creates
+its tables, the pipeline automatically publishes available spatial tables as GeoServer layers. To
+rerun provisioning later, use `docker compose run --rm geoserver-config`.
 
 ## Run
 
@@ -48,6 +62,20 @@ uv run part_b/run_pipeline.py
 ```
 
 See each part's README for the individual stages and options.
+part a took 333.6s
+
+## Open the WebGIS map
+
+The Compose `webgis` service runs Vite in development mode with the frontend source mounted from
+`webgis/`. Changes to `index.html` and `src/` hot reload in the browser; changes to `vite.config.ts`
+restart the dev server. Start it alongside GeoServer with:
+
+```bash
+docker compose up -d --build webgis
+```
+
+Open <http://localhost:8088>. Rebuild the service after changing npm dependencies.
+
 
 ## Clean up
 

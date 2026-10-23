@@ -12,6 +12,7 @@
 
 CREATE SCHEMA IF NOT EXISTS parta;
 
+\echo [1/5] Checking roads and preparing spatial indexes
 DO $$
 BEGIN
   IF to_regclass('public.gis_osm_roads_free') IS NULL THEN
@@ -31,6 +32,7 @@ CREATE INDEX IF NOT EXISTS gis_osm_roads_free_geom_4326_idx
 
 ANALYZE public.gis_osm_roads_free;
 
+\echo [2/5] Calculating buffered GPS extent
 DROP TABLE IF EXISTS parta.gps_extent;
 CREATE TABLE parta.gps_extent AS
 SELECT
@@ -45,6 +47,7 @@ CREATE INDEX gps_extent_geom_buffered_idx
   ON parta.gps_extent
   USING gist (geom_buffered);
 
+\echo [3/5] Cropping OSM roads to the GPS extent
 DROP TABLE IF EXISTS parta.roads_cropped;
 CREATE TABLE parta.roads_cropped AS
 SELECT
@@ -85,6 +88,7 @@ CREATE INDEX roads_cropped_geom_3857_idx
 
 ANALYZE parta.roads_cropped;
 
+\echo [4/5] Snapping each trip endpoint to its nearest road
 DROP TABLE IF EXISTS parta.porto_points_matched;
 CREATE TABLE parta.porto_points_matched AS
 SELECT
@@ -144,6 +148,7 @@ CREATE INDEX porto_points_matched_road_pk_idx
 
 ANALYZE parta.porto_points_matched;
 
+\echo [5/5] Match summary
 SELECT
   count(*) AS total_points,
   count(road_pk) AS matched_points,

@@ -1,11 +1,13 @@
 # Part A.1: Map-Matching Porto Taxi Points
 
-The pipeline:
+The pipeline uses the Porto Taxi `train.csv` dataset by default and keeps only the final valid GPS
+coordinate from each trip. It:
 
 1. prepares a point CSV from the Porto taxi dataset;
 2. imports the GPS points into PostGIS;
 3. imports the OSM road layer from the Portugal PBF;
 4. crops the roads to the GPS extent and map-matches the points.
+5. publishes available Part A spatial tables to GeoServer when the WebGIS services are configured.
 
 Run every command from the project root.
 
@@ -15,13 +17,16 @@ Run every command from the project root.
 uv run part_a/run_pipeline.py
 ```
 
-The runner starts PostGIS, prepares and imports the Porto points, refreshes the roads and map-matches
-the points. Pass `--skip-road-import` to reuse the existing roads. It also accepts sampling controls,
-for example:
+The runner starts PostGIS, prepares and imports the final point from each Porto trip, refreshes the
+roads and map-matches those endpoints. Pass `--skip-road-import` to reuse the existing roads. For a
+smaller run, limit the number of trips or final points:
 
 ```bash
-uv run part_a/run_pipeline.py --max-trips 100 --every-n 2
+uv run part_a/run_pipeline.py --max-trips 100
 ```
+
+Each Python script prints one timer at exit. The SQL files print stage markers before their main
+operations, and the runner prints elapsed time for each SQL file.
 
 ## Run the stages one by one
 
@@ -37,11 +42,12 @@ docker compose up -d postgis
 uv run part_a/src/dataset_cleaning.py
 ```
 
-This writes `data/generated/porto.csv`, which is mounted in the database container as
+By default this reads `data/porto_taxi/train.csv` and writes one final valid coordinate per trip to
+`data/generated/porto.csv`, which is mounted in the database container as
 `/data/porto.csv`. For a smaller subset:
 
 ```bash
-uv run part_a/src/dataset_cleaning.py --max-trips 100 --every-n 2
+uv run part_a/src/dataset_cleaning.py --max-trips 100
 ```
 
 ### 3. Import the GPS points

@@ -140,6 +140,9 @@ def run_stages(args: argparse.Namespace) -> None:
     if not args.skip_report and not args.skip_tagging:
         run([sys.executable, str(SRC / "report_figures.py"), *data_dir])
 
+    # The tables are created by the pipeline; publish them after they exist.
+    run(["docker", "compose", "run", "--rm", "geoserver-config"])
+
 
 if __name__ == "__main__":
     try:

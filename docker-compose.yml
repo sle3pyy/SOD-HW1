@@ -21,9 +21,78 @@ services:
     networks:
       - geostack
 
+  geoserver:
+    image: docker.osgeo.org/geoserver:3.0.2
+    container_name: sod-geoserver
+    restart: unless-stopped
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-sod-local-only}
+      SKIP_DEMO_DATA: "true"
+    ports:
+      - "127.0.0.1:${GEOSERVER_PORT:-8600}:8080"
+    volumes:
+      - geoserver-data:/opt/geoserver_data
+    networks:
+      - geostack
+
+  geoserver-config:
+    build:
+      context: ./webgis
+      dockerfile: Dockerfile
+      target: geoserver-config
+    image: sod-geoserver-config:local
+    container_name: sod-geoserver-config
+    restart: "no"
+    depends_on:
+      geoserver:
+        condition: service_healthy
+    environment:
+      GEOSERVER_URL: http://geoserver:8080/geoserver
+      GEOSERVER_ADMIN_USER: ${GEOSERVER_ADMIN_USER:-admin}
+      GEOSERVER_ADMIN_PASSWORD: ${GEOSERVER_ADMIN_PASSWORD:-sod-local-only}
+      GEOSERVER_WORKSPACE: sod
+      GEOSERVER_PARTA_DATASTORE: parta
+      GEOSERVER_PARTA_SCHEMA: parta
+      GEOSERVER_PARTB_DATASTORE: partb
+      GEOSERVER_PARTB_SCHEMA: partb
+      POSTGRES_HOST: postgis
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-gis}
+      POSTGRES_USER: ${POSTGRES_USER:-gis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gis}
+    networks:
+      - geostack
+
+  webgis:
+    build:
+      context: ./webgis
+      dockerfile: Dockerfile
+      target: development
+    container_name: sod-webgis
+    restart: unless-stopped
+    depends_on:
+      geoserver:
+        condition: service_healthy
+    environment:
+      GEOSERVER_PROXY_TARGET: http://geoserver:8080
+    ports:
+      - "127.0.0.1:${WEBGIS_PORT:-8088}:5173"
+    volumes:
+      - ./webgis/index.html:/app/index.html
+      - ./webgis/src:/app/src
+      - ./webgis/vite.config.ts:/app/vite.config.ts
+      - ./webgis/tsconfig.json:/app/tsconfig.json
+    networks:
+      - geostack
+
 networks:
   geostack:
     name: sod-geostack
 
 volumes:
   postgis-data:
+  geoserver-data:

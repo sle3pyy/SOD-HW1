@@ -28,6 +28,8 @@ This runs the stages below: the OSM import, the feature extraction, the cross-va
 tagging of the target buildings (about 11 minutes in total, most of it the target features). Options:
 `--aoi-name`, `--aoi-admin-level`, `--extent-buffer-m`, `--skip-osm-import`, `--skip-features`,
 `--skip-tagging`, `--skip-report` and `--raw-file`.
+At the end, it starts GeoServer if needed and publishes any spatial tables in the `partb` schema
+that are not already registered as layers.
 
 Only one pipeline can run at a time: all runs write the same `partb` tables and files in
 `data/entrance_tagging/`, so a second `run_pipeline.py` exits with an error while another one holds the

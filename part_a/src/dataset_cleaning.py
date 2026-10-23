@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Flatten Porto taxi challenge trajectories into point rows for PostGIS."""
+"""Extract each Porto taxi trip's final valid point for PostGIS map-matching."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import ast
 import csv
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 
 from sod_common.paths import DATA_DIR
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--input",
         type=Path,
-        default=DATA_DIR / "porto_taxi/Porto_taxi_data_test_partial_trajectories.csv",
+        default=DATA_DIR / "porto_taxi/train.csv",
         help="Porto taxi CSV containing TRIP_ID, TAXI_ID, TIMESTAMP, and POLYLINE.",
     )
     parser.add_argument(
@@ -40,16 +40,10 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Optional global point limit. 0 means all points.",
     )
-    parser.add_argument(
-        "--every-n",
-        type=int,
-        default=1,
-        help="Keep one point every N trajectory points.",
-    )
     return parser.parse_args()
 
 
-def parse_polyline(value: str) -> list[list[float]]:
+def parse_polyline(value: str) -> list[tuple[int, float, float]]:
     try:
         parsed = ast.literal_eval(value)
     except (SyntaxError, ValueError) as exc:
@@ -58,8 +52,8 @@ def parse_polyline(value: str) -> list[list[float]]:
     if not isinstance(parsed, list):
         raise TypeError("POLYLINE is not a list")
 
-    points: list[list[float]] = []
-    for point in parsed:
+    points: list[tuple[int, float, float]] = []
+    for point_index, point in enumerate(parsed):
         if (
             not isinstance(point, list)
             or len(point) != 2
@@ -70,7 +64,7 @@ def parse_polyline(value: str) -> list[list[float]]:
         lon = float(point[0])
         lat = float(point[1])
         if -180 <= lon <= 180 and -90 <= lat <= 90:
-            points.append([lon, lat])
+            points.append((point_index, lon, lat))
     return points
 
 
@@ -80,8 +74,6 @@ def main() -> int:
         raise SystemExit("--max-trips must be >= 0")
     if args.max_points < 0:
         raise SystemExit("--max-points must be >= 0")
-    if args.every_n < 1:
-        raise SystemExit("--every-n must be >= 1")
     if not args.input.exists():
         raise SystemExit(f"Input file not found: {args.input}")
 
@@ -90,6 +82,7 @@ def main() -> int:
     trips_read = 0
     trips_skipped = 0
     points_written = 0
+    seen_trip_ids: set[str] = set()
 
     try:
         output_file = args.output.open("w", newline="", encoding="utf-8")
@@ -117,6 +110,10 @@ def main() -> int:
                 trip_id = row["TRIP_ID"].strip()
                 if not trip_id:
                     raise ValueError("TRIP_ID is empty")
+                if trip_id in seen_trip_ids:
+                    trips_skipped += 1
+                    continue
+                seen_trip_ids.add(trip_id)
                 taxi_id = int(row["TAXI_ID"])
                 start_time = datetime.fromtimestamp(int(row["TIMESTAMP"]), tz=UTC)
                 points = parse_polyline(row["POLYLINE"])
@@ -128,37 +125,37 @@ def main() -> int:
                 trips_skipped += 1
                 continue
 
-            for point_index, (lon, lat) in enumerate(points):
-                if point_index % args.every_n != 0:
-                    continue
+            point_index, lon, lat = points[-1]
+            # Porto challenge polylines are sampled every 15 seconds.
+            recorded_at = start_time + timedelta(seconds=15 * point_index)
+            writer.writerow(
+                [
+                    trip_id,
+                    taxi_id,
+                    point_index,
+                    recorded_at.replace(tzinfo=None).isoformat(sep=" "),
+                    f"{lon:.8f}",
+                    f"{lat:.8f}",
+                ]
+            )
+            points_written += 1
 
-                # Porto challenge polylines are sampled every 15 seconds.
-                recorded_at = start_time + timedelta(seconds=15 * point_index)
-                writer.writerow(
-                    [
-                        trip_id,
-                        taxi_id,
-                        point_index,
-                        recorded_at.replace(tzinfo=None).isoformat(sep=" "),
-                        f"{lon:.8f}",
-                        f"{lat:.8f}",
-                    ]
-                )
-                points_written += 1
-
-                if args.max_points and points_written >= args.max_points:
-                    print(
-                        f"Wrote {points_written} points from {trips_read} trips to {args.output}; "
-                        f"skipped {trips_skipped} trips."
-                    )
-                    return 0
+            if args.max_points and points_written >= args.max_points:
+                break
 
     print(
-        f"Wrote {points_written} points from {trips_read} trips to {args.output}; "
-        f"skipped {trips_skipped} trips."
+        f"Wrote {points_written} final points from {trips_read} trips "
+        f"({trips_skipped} skipped) to {args.output}."
     )
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    started = perf_counter()
+    try:
+        raise SystemExit(main())
+    finally:
+        print(
+            f"[TIMER] dataset_cleaning.py: {perf_counter() - started:.1f}s",
+            flush=True,
+        )

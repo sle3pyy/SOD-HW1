@@ -1,6 +1,8 @@
 __pycache__/
 .venv/
+node_modules/
 .ruff_cache/
+train.csv
 HW01_spatialDataAnalysis.md
 
 # Large or regenerated data: see data/README.md for where it comes from.
@@ -12,3 +14,5 @@ data/entrance_tagging/*/*.csv
 data/entrance_tagging/*/*.png
 data/entrance_tagging/*.geojson
 data/generated/*
+webgis/dist/
+webgis/dist-provisioner/

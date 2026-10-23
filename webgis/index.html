@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Explore OSM buildings and predicted public-building entrances in Porto."
+    />
+    <title>Porto Entrance Explorer</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Porto Entrance Explorer home">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span>Porto <strong>Entrance Explorer</strong></span>
+      </a>
+      <div class="service-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="service-status-label">Loading map layers</span>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar" aria-labelledby="map-title">
+        <div class="eyebrow">SPATIAL DATA · PORTO, PORTUGAL</div>
+        <h1 id="map-title">Entrance map</h1>
+        <p class="intro">
+          This map displays the predicted entrances and the buildings loaded from part A and part B.
+          Click the dots for information about the predicted entrances and the buildings for building info.
+        </p>
+
+        <section class="panel-section" aria-labelledby="layers-title">
+          <div class="section-heading">
+            <h2 id="layers-title">Map layers</h2>
+            <span class="section-note">Toggle in the top right</span>            
+          </div>
+
+          <ul class="layer-key">
+            <li>
+              <span class="key-symbol key-entrance" aria-hidden="true"></span>
+              <span><strong>Predicted entrances</strong><small id="entrance-count">Loading predictions…</small></span>
+            </li>
+            <li>
+              <span class="key-symbol key-building" aria-hidden="true"></span>
+              <span><strong>OSM buildings</strong><small>Building footprints</small></span>
+            </li>
+            <li>
+              <span class="key-symbol key-roads" aria-hidden="true"></span>
+              <span><strong>Road context</strong><small>OSM roads and paths</small></span>
+            </li>
+          </ul>
+        </section>
+
+        <section class="panel-section statistics-panel" aria-labelledby="statistics-title">
+          <div class="section-heading">
+            <h2 id="statistics-title">Dataset statistics</h2>
+          </div>
+          <dl class="statistics-grid">
+            <div class="stat-card">
+              <dt>Predictions</dt>
+              <dd id="stat-entrances">…</dd>
+            </div>
+            <div class="stat-card">
+              <dt>Buildings</dt>
+              <dd id="stat-buildings">…</dd>
+            </div>
+            <div class="stat-card">
+              <dt>Road features</dt>
+              <dd id="stat-roads">…</dd>
+            </div>
+          </dl>
+        </section>
+
+      </aside>
+
+      <section class="map-frame" aria-label="Interactive map of Porto">
+        <div id="map" role="application" aria-label="Map showing buildings and predicted entrances"></div>
+        <div class="map-caption">
+          <span class="caption-pin" aria-hidden="true"></span>
+          <span>Porto municipality</span>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
